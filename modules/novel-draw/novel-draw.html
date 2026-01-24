@@ -1,0 +1,1767 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Novel Draw</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     样式
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --bg-input: rgba(0, 0, 0, 0.25);
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #484f58;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-focus: rgba(212, 165, 116, 0.5);
+    --accent: #d4a574;
+    --accent-soft: rgba(212, 165, 116, 0.15);
+    --success: #3fb950;
+    --danger: #f85149;
+    --warning: #d29922;
+}
+html, body { height: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+}
+.app-container { display: flex; flex-direction: column; min-height: 100vh; }
+.app-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.app-body { display: flex; flex: 1; min-height: 0; }
+.app-sidebar {
+    width: 200px; min-width: 200px; background: var(--bg-secondary);
+    border-right: 1px solid var(--border); padding: 16px 8px;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.app-main { flex: 1; padding: 24px; overflow-y: auto; }
+.header-logo { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.header-logo i { color: var(--accent); }
+.header-badge {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+    background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 12px; font-size: 11px; color: var(--text-muted);
+}
+.header-badge.on { color: var(--success); border-color: rgba(63, 185, 80, 0.3); }
+.header-badge i { font-size: 6px; }
+.header-spacer { flex: 1; min-width: 10px; }
+.header-mode {
+    display: flex; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 16px; padding: 2px;
+}
+.header-toggles { display: flex; gap: 6px; margin-right: 8px; }
+.header-toggle {
+    display: flex; align-items: center; gap: 4px; padding: 4px 8px;
+    background: var(--bg-input); border: 1px solid var(--border); border-radius: 12px;
+    font-size: 11px; color: var(--text-secondary); cursor: pointer; transition: all 0.15s;
+}
+.header-toggle input { accent-color: var(--accent); }
+.header-mode button {
+    padding: 6px 14px; border: none; border-radius: 14px;
+    background: transparent; color: var(--text-secondary);
+    font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.header-mode button.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.header-close {
+    width: 36px; height: 36px; min-width: 36px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: transparent; color: var(--text-secondary);
+    cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.header-close:hover { background: rgba(255,255,255,0.08); color: var(--text-primary); }
+.header-credit {
+    font-size: 11px; color: var(--text-muted); opacity: 0.5;
+    margin-left: 6px; letter-spacing: 0.02em; font-style: italic;
+    transition: opacity 0.2s; white-space: nowrap;
+}
+.header-credit:hover { opacity: 0.9; }
+.credit-author {
+    font-style: normal;
+    color: var(--text-secondary);
+    transition: color 0.15s, opacity 0.15s;
+    cursor: default;
+}
+.credit-author:hover {
+    color: var(--accent);
+    opacity: 1;
+    text-shadow: 0 0 8px rgba(212, 165, 116, 0.5);
+}
+.nav-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    border-radius: 8px; color: var(--text-secondary); cursor: pointer;
+    transition: all 0.15s; font-size: 13px;
+}
+.nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text-primary); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.nav-item i { width: 18px; text-align: center; }
+.nav-divider { height: 1px; background: var(--border); margin: 8px 0; }
+.view { display: none; max-width: 800px; margin: 0 auto; }
+.view.active { display: block; animation: viewIn 0.2s ease; }
+.view.wide { max-width: 1200px; }
+@keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
+.view-header { margin-bottom: 20px; }
+.view-title { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+.view-desc { font-size: 13px; color: var(--text-secondary); }
+.card {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px; margin-bottom: 16px;
+}
+.card-title { font-size: 13px; font-weight: 600; margin-bottom: 16px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+.form-group { margin-bottom: 16px; }
+.form-group:last-child { margin-bottom: 0; }
+.form-label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; }
+.form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.input {
+    width: 100%; padding: 10px 12px; background: var(--bg-input);
+    border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-primary); font-size: 13px; transition: border-color 0.15s;
+}
+.input:focus { outline: none; border-color: var(--border-focus); }
+.input::placeholder { color: var(--text-muted); }
+textarea.input { min-height: 80px; resize: vertical; font-family: inherit; }
+select.input { cursor: pointer; }
+.input-row { display: flex; gap: 8px; }
+.input-row .input { flex: 1; min-width: 0; }
+.btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 10px 16px; min-height: 40px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--bg-tertiary); color: var(--text-primary);
+    font-size: 13px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+}
+.btn:hover { background: rgba(255,255,255,0.08); }
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 500; }
+.btn-primary:hover { background: #e5b685; }
+.btn-danger { color: var(--danger); border-color: rgba(248, 81, 73, 0.3); }
+.btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
+.btn-icon { width: 40px; padding: 0; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-sm { padding: 6px 10px; min-height: 32px; font-size: 12px; }
+.btn.saving { pointer-events: none; opacity: 0.7; }
+.btn.save-success { background: var(--success) !important; border-color: var(--success) !important; color: #fff !important; pointer-events: none; }
+.btn.save-success i { animation: checkBounce 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+.btn.save-failed { background: var(--danger) !important; border-color: var(--danger) !important; color: #fff !important; pointer-events: none; }
+.btn.save-failed i { animation: shakeFail 0.4s ease; }
+@keyframes checkBounce { 0% { transform: scale(0) rotate(-45deg); } 50% { transform: scale(1.3) rotate(0deg); } 100% { transform: scale(1) rotate(0deg); } }
+@keyframes shakeFail { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+.preset-bar {
+    display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 10px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.preset-bar select { flex: 1; min-width: 120px; max-width: 200px; }
+.char-grid { display: flex; flex-direction: column; gap: 12px; }
+.char-card {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; display: flex; gap: 12px; transition: border-color 0.2s;
+}
+.char-card:hover { border-color: var(--accent); }
+.char-card.editing { border-color: var(--accent); background: var(--accent-soft); }
+.char-avatar {
+    width: 44px; height: 44px; border-radius: 50%; background: var(--accent-soft);
+    display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0;
+}
+.char-info { flex: 1; min-width: 0; }
+.char-name { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.char-meta { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.char-tags { font-size: 12px; color: var(--text-secondary); line-height: 1.5; word-break: break-word; }
+.char-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.char-actions .btn { padding: 6px 10px; min-height: 32px; font-size: 12px; }
+.char-empty { text-align: center; padding: 40px 20px; color: var(--text-muted); }
+.char-empty i { font-size: 32px; margin-bottom: 12px; opacity: 0.5; display: block; }
+.char-edit-form { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.char-edit-form .form-group { margin-bottom: 10px; }
+.char-edit-form .form-label { font-size: 11px; margin-bottom: 4px; }
+.char-edit-form .input { padding: 8px 10px; font-size: 12px; }
+.char-edit-form textarea.input { min-height: 60px; }
+.char-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.char-section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+}
+.char-section-header .card-title { margin-bottom: 0; }
+.char-section-toggle { color: var(--text-muted); font-size: 12px; transition: transform 0.2s; }
+.card.collapsed .char-section-toggle { transform: rotate(-90deg); }
+.card.collapsed .char-section-content { display: none; }
+.char-section-content { margin-top: 16px; }
+.preview-box {
+    margin-top: 16px; background: var(--bg-input); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px; text-align: center; display: none;
+}
+.preview-box.visible { display: block; }
+.preview-box img { max-width: 100%; max-height: 400px; border-radius: 6px; }
+.status-text { font-size: 12px; color: var(--text-secondary); margin-top: 8px; min-height: 18px; }
+.status-text.success { color: var(--success); }
+.status-text.error { color: var(--danger); }
+.status-text.loading { color: var(--warning); }
+.tip-box {
+    display: flex; gap: 10px; padding: 12px 14px; background: var(--accent-soft);
+    border: 1px solid rgba(212, 165, 116, 0.2); border-radius: 8px;
+    font-size: 12px; color: var(--text-secondary); line-height: 1.6;
+}
+.tip-text { display: flex; flex-direction: column; gap: 4px; }
+.tip-box i { color: var(--accent); flex-shrink: 0; margin-top: 2px; }
+.gallery-char-section { margin-bottom: 16px; }
+.gallery-char-header {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 10px; cursor: pointer; transition: all 0.15s;
+}
+.gallery-char-section:not(.collapsed) .gallery-char-header { border-radius: 10px 10px 0 0; }
+.gallery-char-header:hover { background: rgba(255,255,255,0.05); }
+.gallery-char-avatar {
+    width: 36px; height: 36px; border-radius: 50%; background: var(--accent-soft);
+    display: flex; align-items: center; justify-content: center; font-size: 18px;
+}
+.gallery-char-name { font-weight: 600; flex: 1; }
+.gallery-char-stats { font-size: 12px; color: var(--text-secondary); }
+.gallery-char-toggle { color: var(--text-muted); transition: transform 0.2s; }
+.gallery-char-section.collapsed .gallery-char-toggle { transform: rotate(-90deg); }
+.gallery-char-section.collapsed .gallery-slots { display: none; }
+.gallery-slots {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px;
+    padding: 16px; background: var(--bg-secondary);
+    border: 1px solid var(--border); border-top: none; border-radius: 0 0 10px 10px;
+}
+.gallery-slot {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden; cursor: pointer; transition: all 0.2s; position: relative;
+}
+.gallery-slot:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.3); }
+.gallery-slot-img { width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block; background: var(--bg-input); }
+.gallery-slot-placeholder {
+    width: 100%; aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center;
+    background: var(--bg-input); color: var(--text-muted); font-size: 24px;
+}
+.gallery-slot-overlay {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(to bottom, transparent 50%, rgba(0,0,0,0.8));
+    opacity: 0; transition: opacity 0.2s; display: flex;
+    flex-direction: column; justify-content: flex-end; padding: 10px;
+}
+.gallery-slot:hover .gallery-slot-overlay { opacity: 1; }
+.gallery-slot-actions { display: flex; gap: 6px; justify-content: center; }
+.gallery-slot-actions .btn { padding: 6px 10px; min-height: 28px; font-size: 11px; background: rgba(0,0,0,0.6); }
+.gallery-slot-info {
+    padding: 10px 12px; font-size: 11px; color: var(--text-secondary);
+    display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border);
+}
+.gallery-slot-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;
+}
+.gallery-slot-badge.count { background: var(--accent-soft); color: var(--accent); }
+.gallery-slot-badge.saved { background: rgba(63, 185, 80, 0.15); color: var(--success); }
+.gallery-empty { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.gallery-empty i { font-size: 48px; margin-bottom: 16px; opacity: 0.4; display: block; }
+.gallery-empty p { font-size: 13px; margin-top: 8px; }
+.gallery-loading { grid-column: 1 / -1; text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 13px; }
+.gallery-loading i { margin-right: 8px; }
+.gallery-empty-hint { grid-column: 1 / -1; text-align: center; padding: 30px 20px; color: var(--text-muted); font-size: 13px; }
+.gallery-modal {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.9); z-index: 1000;
+    display: none; flex-direction: column; align-items: center; justify-content: center; padding: 20px;
+}
+.gallery-modal.visible { display: flex; }
+.gallery-modal-close {
+    position: absolute; top: 16px; right: 16px; width: 44px; height: 44px;
+    border: none; background: rgba(255,255,255,0.1); border-radius: 50%;
+    color: #fff; font-size: 20px; cursor: pointer; z-index: 10;
+}
+.gallery-modal-close:hover { background: rgba(255,255,255,0.2); }
+.gallery-modal-content { max-width: 90vw; max-height: 80vh; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.gallery-modal-img { max-width: 100%; max-height: 60vh; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+.gallery-modal-thumbs {
+    display: flex; gap: 8px; padding: 12px; background: rgba(0,0,0,0.5);
+    border-radius: 12px; max-width: 100%; overflow-x: auto;
+}
+.gallery-modal-thumb {
+    width: 60px; height: 60px; border-radius: 8px; object-fit: cover;
+    cursor: pointer; border: 2px solid transparent; opacity: 0.6;
+    transition: all 0.15s; flex-shrink: 0;
+}
+.gallery-modal-thumb:hover { opacity: 0.9; }
+.gallery-modal-thumb.active { border-color: var(--accent); opacity: 1; }
+.gallery-modal-thumb.saved { border-color: var(--success); }
+.gallery-modal-actions { display: flex; gap: 12px; }
+.gallery-modal-info { font-size: 12px; color: rgba(255,255,255,0.6); text-align: center; }
+.mobile-nav {
+    display: none; position: fixed; bottom: 0; left: 0; right: 0;
+    height: 60px; background: var(--bg-secondary); border-top: 1px solid var(--border); z-index: 100;
+}
+.mobile-nav-inner { display: flex; height: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.mobile-nav-inner::-webkit-scrollbar { display: none; }
+.mobile-nav-item {
+    flex: 1; min-width: 60px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 4px;
+    color: var(--text-muted); font-size: 10px; cursor: pointer; padding: 8px 4px;
+}
+.mobile-nav-item i { font-size: 18px; }
+.mobile-nav-item.active { color: var(--accent); }
+@media (max-width: 768px) {
+    .app-sidebar { display: none; }
+    .mobile-nav { display: block; }
+    .app-body { padding-bottom: 60px; }
+    .app-main { padding: 16px; padding-bottom: 76px; }
+    .app-header { padding: 10px 12px; gap: 8px; }
+    .header-logo span { display: none; }
+    .header-badge { padding: 4px 8px; font-size: 10px; }
+    .header-badge span { display: none; }
+    .header-mode button { padding: 5px 10px; font-size: 11px; }
+    .header-close { width: 32px; height: 32px; min-width: 32px; font-size: 14px; }
+    .header-credit { display: none; }
+    .view-title { font-size: 18px; }
+    .card { padding: 16px; }
+    .form-row { grid-template-columns: 1fr; }
+    .preset-bar { padding: 10px 12px; }
+    .preset-bar select { max-width: none; }
+    .gallery-slots { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 12px; }
+}
+@media (max-width: 400px) {
+    .app-header { padding: 8px 10px; }
+    .header-mode button { padding: 4px 8px; font-size: 10px; }
+    .mobile-nav-item { min-width: 48px; font-size: 9px; }
+    .mobile-nav-item i { font-size: 16px; }
+}
+@media (hover: none) and (pointer: coarse) {
+    .btn { min-height: 44px; }
+    .input { min-height: 44px; padding: 12px; }
+    .nav-item { min-height: 44px; }
+    .header-close { width: 44px; height: 44px; min-width: 44px; }
+    .gallery-slot-overlay { opacity: 1; background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.7)); }
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+.hidden { display: none !important; }
+</style>
+</head>
+
+<body>
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     主容器
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div class="app-container">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         头部
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <header class="app-header">
+        <div class="header-logo"><i class="fa-solid fa-palette"></i><span>Novel Draw</span></div>
+        <div id="nd_badge" class="header-badge"><i class="fa-solid fa-circle"></i><span>未启用</span></div>
+        <span class="header-credit" id="nd_credits"></span>
+        <div class="header-spacer"></div>
+        <div class="header-toggles">
+            <label class="header-toggle">
+                <input type="checkbox" id="nd_show_floor">
+                <span>楼层</span>
+            </label>
+            <label class="header-toggle">
+                <input type="checkbox" id="nd_show_floating">
+                <span>悬浮</span>
+            </label>
+        </div>
+        <div class="header-mode">
+            <button data-mode="manual" class="active">手动</button>
+            <button data-mode="auto">自动</button>
+        </div>
+        <button id="nd_close" class="header-close">✕</button>
+    </header>
+
+    <div class="app-body">
+        <!-- ═══════════════════════════════════════════════════════════════════
+             侧边栏
+             ═══════════════════════════════════════════════════════════════════ -->
+        <nav class="app-sidebar">
+            <div class="nav-item active" data-view="test"><i class="fa-solid fa-flask"></i>快速测试</div>
+            <div class="nav-item" data-view="api"><i class="fa-solid fa-key"></i>API 配置</div>
+            <div class="nav-divider"></div>
+            <div class="nav-item" data-view="params"><i class="fa-solid fa-sliders"></i>绘图参数</div>
+            <div class="nav-item" data-view="llm"><i class="fa-solid fa-robot"></i>LLM 配置</div>
+            <div class="nav-divider"></div>
+            <div class="nav-item" data-view="gallery"><i class="fa-solid fa-images"></i>图片管理</div>
+        </nav>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             主内容区
+             ═══════════════════════════════════════════════════════════════════ -->
+        <main class="app-main">
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 快速测试
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div id="view-test" class="view active">
+                <div class="view-header">
+                    <h2 class="view-title">快速测试</h2>
+                    <p class="view-desc">验证 API 连接和生成效果</p>
+                </div>
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">测试 TAG</label>
+                        <div class="input-row">
+                            <input id="nd_test_tags" type="text" class="input" value="1girl, smile, upper body, simple background">
+                            <button id="nd_test_single" class="btn btn-primary"><i class="fa-solid fa-play"></i> 生成</button>
+                        </div>
+                    </div>
+                    <div id="nd_preview" class="preview-box"><img id="nd_preview_img" alt=""></div>
+                    <div id="nd_status" class="status-text"></div>
+                </div>
+                <div class="tip-box">
+                    <i class="fa-solid fa-lightbulb"></i>
+                    <div class="tip-text">
+                        <div>消息楼层按钮的 🎨 为对应消息生成配图。</div>
+                        <div>悬浮按钮的 🎨 仅作用于最后一条AI消息。</div>
+                        <div>开启自动模式后，AI回复时会自动配图。</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 API 配置
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div id="view-api" class="view">
+                <div class="view-header">
+                    <h2 class="view-title">API 配置</h2>
+                    <p class="view-desc">NovelAI 服务连接设置</p>
+                </div>
+                <div class="card">
+                    <div class="form-group">
+                        <label class="form-label">NovelAI API Key</label>
+                        <div class="input-row">
+                            <input id="nd_api_key" type="password" class="input" placeholder="pst-xxxxxxxx...">
+                            <button id="nd_toggle_key" class="btn btn-icon"><i class="fa-solid fa-eye"></i></button>
+                        </div>
+                        <p class="form-hint">仅存储在本地浏览器</p>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">超时时间 (秒)</label>
+                            <input id="nd_timeout" type="number" class="input" value="60">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">请求间隔 (毫秒)</label>
+                            <input id="nd_delay" type="text" class="input" value="15000-30000">
+                        </div>
+                    </div>
+                    <div class="btn-group" style="margin-top: 16px;">
+                        <button id="nd_save_api" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存</button>
+                        <button id="nd_test_api" class="btn"><i class="fa-solid fa-plug"></i> 测试连接</button>
+                    </div>
+                    <div id="nd_api_status" class="status-text"></div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 绘图参数
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div id="view-params" class="view">
+                <div class="view-header">
+                    <h2 class="view-title">绘图参数</h2>
+                    <p class="view-desc">模型、生成参数与标签设置</p>
+                </div>
+                
+                <div class="preset-bar">
+                    <select id="nd_params_preset" class="input"></select>
+                    <div class="btn-group">
+                        <button id="nd_params_add" class="btn btn-icon" title="新建"><i class="fa-solid fa-plus"></i></button>
+                        <button id="nd_params_rename" class="btn btn-icon" title="重命名"><i class="fa-solid fa-pen"></i></button>
+                        <button id="nd_params_save" class="btn btn-primary" title="保存"><i class="fa-solid fa-floppy-disk"></i></button>
+                        <button id="nd_params_cloud" class="btn btn-icon" title="云端预设" style="color:#d4a574;"><i class="fa-solid fa-cloud-arrow-down"></i></button>
+                        <button id="nd_params_export" class="btn btn-icon" title="导出当前预设"><i class="fa-solid fa-share-from-square"></i></button>
+                        <button id="nd_params_del" class="btn btn-danger btn-icon" title="删除"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-title">🌐 全局标签</div>
+                    <div class="form-group">
+                        <label class="form-label">正向固定</label>
+                        <textarea id="nd_positive" class="input" rows="3" placeholder="masterpiece, best quality..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">负向固定</label>
+                        <textarea id="nd_negative" class="input" rows="3" placeholder="lowres, bad anatomy..."></textarea>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-title">模型与采样</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">模型</label>
+                            <select id="nd_model_sel" class="input">
+                                <option value="nai-diffusion-4-5-full">NAI V4.5 Full</option>
+                                <option value="nai-diffusion-4-5-curated">NAI V4.5 Curated</option>
+                                <option value="nai-diffusion-4-full">NAI V4 Full</option>
+                                <option value="nai-diffusion-3">NAI V3</option>
+                                <option value="nai-diffusion-furry-3">Furry V3</option>
+                                <option value="custom">自定义...</option>
+                            </select>
+                            <input id="nd_model" type="text" class="input hidden" placeholder="模型ID" style="margin-top:6px;">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">采样器</label>
+                            <select id="nd_sampler_sel" class="input">
+                                <option value="k_euler_ancestral">Euler Ancestral</option>
+                                <option value="k_euler">Euler</option>
+                                <option value="k_dpmpp_2m">DPM++ 2M</option>
+                                <option value="k_dpmpp_sde">DPM++ SDE</option>
+                                <option value="ddim">DDIM</option>
+                                <option value="custom">自定义...</option>
+                            </select>
+                            <input id="nd_sampler" type="text" class="input hidden" style="margin-top:6px;">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">调度器</label>
+                            <select id="nd_scheduler_sel" class="input">
+                                <option value="native">Native</option>
+                                <option value="karras">Karras</option>
+                                <option value="exponential">Exponential</option>
+                                <option value="custom">自定义...</option>
+                            </select>
+                            <input id="nd_scheduler" type="text" class="input hidden" style="margin-top:6px;">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-title">尺寸与参数</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">尺寸预设</label>
+                            <select id="nd_size_preset" class="input">
+                                <option value="832x1216">832×1216 竖图</option>
+                                <option value="1216x832">1216×832 横图</option>
+                                <option value="1024x1024">1024×1024 方图</option>
+                                <option value="768x1280">768×1280 竖图</option>
+                                <option value="1280x768">1280×768 横图</option>
+                                <option value="custom">自定义...</option>
+                            </select>
+                            <div id="nd_custom_size" class="input-row hidden" style="margin-top:6px;">
+                                <input id="nd_width" type="number" class="input" placeholder="宽度">
+                                <input id="nd_height" type="number" class="input" placeholder="高度">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Steps / CFG / Seed</label>
+                            <div class="input-row">
+                                <input id="nd_steps" type="number" class="input" placeholder="23" title="Steps">
+                                <input id="nd_scale" type="number" class="input" placeholder="5" title="CFG">
+                                <input id="nd_seed" type="number" class="input" placeholder="-1" title="Seed">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-title">增强选项</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">质量增强</label>
+                            <select id="nd_quality_toggle" class="input">
+                                <option value="true">开启</option>
+                                <option value="false">关闭</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">负面预设</label>
+                            <select id="nd_uc_preset" class="input">
+                                <option value="0">Heavy</option>
+                                <option value="1">Light</option>
+                                <option value="2">Human Focus</option>
+                                <option value="3">None</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">自动 SMEA</label>
+                            <select id="nd_auto_smea" class="input">
+                                <option value="false">关闭</option>
+                                <option value="true">开启</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">CFG 重缩放</label>
+                            <input id="nd_cfg_rescale" type="number" class="input" value="0" min="0" max="1" step="0.05">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top:12px;">
+                        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                            <input type="checkbox" id="nd_variety_boost"> 多样性增强 (V4.5)
+                        </label>
+                    </div>
+                    <div id="nd_v3_opts" class="form-group hidden" style="margin-top:12px;">
+                        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;"><input type="checkbox" id="nd_sm"> SMEA</label>
+                        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-top:8px;"><input type="checkbox" id="nd_sm_dyn"> SMEA 动态</label>
+                        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-top:8px;"><input type="checkbox" id="nd_decrisper"> Decrisper</label>
+                    </div>
+                </div>
+                
+                <div class="card" id="nd_char_card">
+                    <div class="char-section-header" id="nd_char_header">
+                        <div class="card-title">👥 角色标签</div>
+                        <i class="fa-solid fa-chevron-down char-section-toggle"></i>
+                    </div>
+                    <div class="char-section-content">
+                        <p class="form-hint" style="margin-bottom:16px;">预设角色外貌，LLM 只需补充动作和互动标签</p>
+                        <div class="btn-group" style="margin-bottom:16px;">
+                            <button id="nd_char_add" class="btn btn-primary"><i class="fa-solid fa-plus"></i> 添加角色</button>
+                            <button id="nd_char_export" class="btn"><i class="fa-solid fa-download"></i> 导出</button>
+                            <label class="btn" style="cursor:pointer;"><i class="fa-solid fa-upload"></i> 导入<input type="file" id="nd_char_import" accept=".json" style="display:none;"></label>
+                        </div>
+                        <div id="nd_char_list" class="char-grid"></div>
+                        <div id="nd_char_empty" class="char-empty">
+                            <i class="fa-solid fa-user-plus"></i>
+                            <div>暂无角色配置</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 LLM 配置
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div id="view-llm" class="view">
+                <div class="view-header">
+                    <h2 class="view-title">LLM 配置</h2>
+                    <p class="view-desc">场景分析所用的大语言模型渠道设置</p>
+                </div>
+                
+                <div class="card">
+                    <div class="card-title">渠道配置</div>
+                    <div class="form-group">
+                        <label class="form-label">LLM 渠道</label>
+                        <select id="nd_llm_provider" class="input">
+                            <option value="st">酒馆主 API</option>
+                            <option value="openai">OpenAI 兼容</option>
+                            <option value="google">Google Gemini</option>
+                            <option value="claude">Claude</option>
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="cohere">Cohere</option>
+                            <option value="custom">自定义</option>
+                        </select>
+                    </div>
+                    <div id="nd_llm_url_row" class="form-group hidden">
+                        <label class="form-label">API URL</label>
+                        <input id="nd_llm_url" type="text" class="input" placeholder="https://api.openai.com/v1">
+                    </div>
+                    <div id="nd_llm_key_row" class="form-group hidden">
+                        <label class="form-label">API Key</label>
+                        <input id="nd_llm_key" type="password" class="input" placeholder="sk-xxx...">
+                    </div>
+                    <div id="nd_llm_model_manual_row" class="form-group hidden">
+                        <label class="form-label">模型</label>
+                        <input id="nd_llm_model_manual" type="text" class="input" placeholder="gemini-1.5-pro">
+                    </div>
+                    <div id="nd_llm_model_select_row" class="form-group hidden">
+                        <label class="form-label">模型</label>
+                        <select id="nd_llm_model_select" class="input"><option value="">请先拉取模型列表</option></select>
+                    </div>
+                    <div id="nd_llm_connect_row" class="btn-group hidden" style="margin-top:12px;">
+                        <button id="nd_llm_fetch" class="btn"><i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表</button>
+                    </div>                    
+
+				<div class="form-group" style="margin-top:16px;">
+				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+				        <input type="checkbox" id="nd_use_stream"> 启用流式生成
+				    </label>
+				</div>
+				<div class="form-group" style="margin-top:8px;">
+				    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+				        <input type="checkbox" id="nd_use_worldinfo"> 使用世界书
+				    </label>
+				    <p class="form-hint" style="margin-left:24px;">勾选后，注入世界书作为背景知识</p>
+				</div>
+                    
+                    <div id="nd_llm_status" class="status-text"></div>
+                    <div class="btn-group" style="margin-top:16px;">
+                        <button id="nd_llm_save" class="btn btn-primary"><i class="fa-solid fa-floppy-disk"></i> 保存配置</button>
+                    </div>
+                </div>
+                
+                <div class="tip-box">
+                    <i class="fa-solid fa-info-circle"></i>
+                    <div>场景分析提示词由插件内置，无需配置。勾选「使用世界书」后，会注入世界书作为背景知识。</div>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════════════════════════════
+                 图片管理
+                 ═══════════════════════════════════════════════════════════════ -->
+            <div id="view-gallery" class="view wide">
+                <div class="view-header">
+                    <h2 class="view-title">图片管理</h2>
+                    <p class="view-desc">查看、管理和清理生成的配图</p>
+                </div>
+                
+                <div class="card" style="margin-bottom:20px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+                        <div style="display:flex;gap:32px;">
+                            <div style="text-align:center;">
+                                <div style="font-size:28px;font-weight:700;color:var(--accent);" id="nd_cache_count">0</div>
+                                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">图片数量</div>
+                            </div>
+                            <div style="text-align:center;">
+                                <div style="font-size:28px;font-weight:700;" id="nd_cache_size">0 MB</div>
+                                <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">占用空间</div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <div style="display:flex;align-items:center;gap:6px;background:var(--bg-input);padding:6px 10px;border-radius:8px;border:1px solid var(--border);">
+                                <span style="font-size:12px;color:var(--text-secondary);">自动清理</span>
+                                <input id="nd_cache_days" type="number" class="input" style="width:50px;padding:4px 6px;min-height:28px;text-align:center;" value="3" min="1" max="30">
+                                <span style="font-size:12px;color:var(--text-secondary);">天</span>
+                                <button id="nd_save_cache_days" class="btn btn-sm btn-icon" style="min-height:28px;width:28px;padding:0;"><i class="fa-solid fa-check"></i></button>
+                            </div>
+                            <button id="nd_clear_expired" class="btn btn-sm"><i class="fa-solid fa-broom"></i> 清理过期</button>
+                            <button id="nd_clear_all" class="btn btn-sm btn-danger"><i class="fa-solid fa-trash"></i> 清空全部</button>
+                            <button id="nd_refresh_stats" class="btn btn-sm btn-icon"><i class="fa-solid fa-arrows-rotate"></i></button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="nd_gallery_container"></div>
+                <div id="nd_gallery_empty" class="gallery-empty" style="display:none;">
+                    <i class="fa-solid fa-images"></i>
+                    <div>暂无图片</div>
+                    <p>生成的配图会显示在这里，点击角色展开查看</p>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         移动端导航
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <nav class="mobile-nav">
+        <div class="mobile-nav-inner">
+            <div class="mobile-nav-item active" data-view="test"><i class="fa-solid fa-flask"></i><span>测试</span></div>
+            <div class="mobile-nav-item" data-view="api"><i class="fa-solid fa-key"></i><span>API</span></div>
+            <div class="mobile-nav-item" data-view="params"><i class="fa-solid fa-sliders"></i><span>参数</span></div>
+            <div class="mobile-nav-item" data-view="llm"><i class="fa-solid fa-robot"></i><span>LLM</span></div>
+            <div class="mobile-nav-item" data-view="gallery"><i class="fa-solid fa-images"></i><span>图片</span></div>
+        </div>
+    </nav>
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         画廊弹窗
+         ═══════════════════════════════════════════════════════════════════════ -->
+    <div id="nd_gallery_modal" class="gallery-modal">
+        <button class="gallery-modal-close" id="nd_modal_close">✕</button>
+        <div class="gallery-modal-content">
+            <img class="gallery-modal-img" id="nd_modal_img" src="" alt="">
+            <div class="gallery-modal-thumbs" id="nd_modal_thumbs"></div>
+            <div class="gallery-modal-actions">
+                <button class="btn btn-primary" id="nd_modal_use"><i class="fa-solid fa-check"></i> 使用此图</button>
+                <button class="btn" id="nd_modal_save"><i class="fa-solid fa-floppy-disk"></i> 保存到服务器</button>
+                <button class="btn btn-danger" id="nd_modal_delete"><i class="fa-solid fa-trash"></i> 删除</button>
+            </div>
+            <div class="gallery-modal-info" id="nd_modal_info"></div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     脚本
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// 常量
+// ═══════════════════════════════════════════════════════════════════════════
+
+const DEFAULTS = {
+    timeout: 60000,
+    requestDelay: { min: 15000, max: 30000 },
+    cacheDays: 3,
+    params: {
+        model: 'nai-diffusion-4-5-full',
+        sampler: 'k_euler_ancestral',
+        scheduler: 'karras',
+        steps: 28,
+        scale: 6,
+        width: 1216,
+        height: 832,
+        seed: -1,
+        qualityToggle: true,
+        autoSmea: false,
+        ucPreset: 0,
+        cfg_rescale: 0,
+        variety_boost: false,
+        sm: false,
+        sm_dyn: false,
+        decrisper: false
+    }
+};
+
+const CHARACTER_TYPES = [
+    { value: 'girl', label: 'girl (少女)' },
+    { value: 'woman', label: 'woman (成年女性)' },
+    { value: 'boy', label: 'boy (少年)' },
+    { value: 'man', label: 'man (成年男性)' },
+    { value: 'other', label: 'other (其他)' },
+    { value: 'custom', label: '自定义...' }
+];
+
+const providerDefaults = {
+    st: { url: '', needKey: false, canFetch: false, needManualModel: false },
+    openai: { url: 'https://api.openai.com', needKey: true, canFetch: true, needManualModel: false },
+    google: { url: 'https://generativelanguage.googleapis.com', needKey: true, canFetch: false, needManualModel: true },
+    claude: { url: 'https://api.anthropic.com', needKey: true, canFetch: false, needManualModel: true },
+    deepseek: { url: 'https://api.deepseek.com', needKey: true, canFetch: true, needManualModel: false },
+    cohere: { url: 'https://api.cohere.ai', needKey: true, canFetch: false, needManualModel: true },
+    custom: { url: '', needKey: true, canFetch: true, needManualModel: false }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 状态
+// ═══════════════════════════════════════════════════════════════════════════
+
+let state = {
+    enabled: false,
+    mode: 'manual',
+    apiKey: '',
+    timeout: DEFAULTS.timeout,
+    requestDelay: { ...DEFAULTS.requestDelay },
+    cacheDays: DEFAULTS.cacheDays,
+    cacheStats: { count: 0, sizeMB: '0' },
+    selectedParamsPresetId: null,
+    paramsPresets: [],
+    llmApi: { provider: 'st', url: '', key: '', model: '', modelCache: [] },
+    useStream: true,
+    characterTags: [],
+    showFloorButton: true,
+    showFloatingButton: false
+};
+
+let gallerySummary = {};
+let loadedCharPreviews = {};
+let editingCharId = null;
+let activeSaveBtn = null;
+let modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 工具函数
+// ═══════════════════════════════════════════════════════════════════════════
+
+const $ = id => document.getElementById(id);
+const $$ = sel => document.querySelectorAll(sel);
+
+const PARENT_ORIGIN = (() => {
+    try { return new URL(document.referrer).origin; } catch { return window.location.origin; }
+})();
+function postToParent(payload) {
+    window.parent.postMessage({ source: 'NovelDraw-Frame', ...payload }, PARENT_ORIGIN);
+}
+
+function escapeHtml(str) {
+    return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function getCharEmoji(name) {
+    const emojis = ['👤','👩','👨','🧑','👧','👦','👸','🤴','🧙','🧝','🧛','🦸'];
+    return emojis[String(name || '').split('').reduce((a, c) => a + c.charCodeAt(0), 0) % emojis.length];
+}
+
+function parseDelay(str) {
+    const parts = String(str).split('-').map(s => parseInt(s.trim()));
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        return { min: Math.min(parts[0], parts[1]), max: Math.max(parts[0], parts[1]) };
+    }
+    const single = parseInt(str);
+    if (!isNaN(single) && single > 0) return { min: single, max: single };
+    return { ...DEFAULTS.requestDelay };
+}
+
+function shuffleCredits() {
+    const authors = ['𝓡𝓸𝓻𝓸𝓵𝓵𝓵𝓷', '阡濯', '小白狐'];
+    const shuffled = authors.sort(() => Math.random() - 0.5);
+    const el = document.getElementById('nd_credits');
+    if (el) {
+        el.innerHTML = shuffled
+            .map(name => `· <span class="credit-author">${name}</span>`)
+            .join(' ');
+    }
+}
+// ═══════════════════════════════════════════════════════════════════════════
+// UI 更新
+// ═══════════════════════════════════════════════════════════════════════════
+
+function switchView(viewId) {
+    $$('.view').forEach(v => v.classList.remove('active'));
+    $$('.nav-item, .mobile-nav-item').forEach(n => n.classList.remove('active'));
+    $(`view-${viewId}`)?.classList.add('active');
+    $$(`[data-view="${viewId}"]`).forEach(n => n.classList.add('active'));
+    if (viewId === 'gallery') postToParent({ type: 'REFRESH_CACHE_STATS' });
+}
+
+function updateModeButtons(mode) {
+    $$('.header-mode button').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
+}
+
+function updateBadge(enabled) {
+    const b = $('nd_badge');
+    b.className = 'header-badge' + (enabled ? ' on' : '');
+    b.querySelector('span').textContent = enabled ? '已启用' : '未启用';
+}
+
+function updateStatus(el, st, text) {
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = 'status-text' + (st ? ' ' + st : '');
+}
+
+function setSavingState(btn) {
+    if (!btn) return;
+    activeSaveBtn = btn;
+    const i = btn.querySelector('i');
+    if (i) { btn._origIcon = i.className; i.className = 'fa-solid fa-spinner fa-spin'; }
+    btn.classList.add('saving');
+}
+
+function handleSaveResult(success) {
+    if (!activeSaveBtn) return;
+    const btn = activeSaveBtn;
+    activeSaveBtn = null;
+    btn.classList.remove('saving');
+    const i = btn.querySelector('i');
+    
+    if (success && i) {
+        i.className = 'fa-solid fa-check';
+        btn.classList.add('save-success');
+        setTimeout(() => {
+            btn.classList.remove('save-success');
+            i.className = btn._origIcon || 'fa-solid fa-floppy-disk';
+        }, 1500);
+    } else if (i) {
+        i.className = 'fa-solid fa-xmark';
+        btn.classList.add('save-failed');
+        setTimeout(() => {
+            btn.classList.remove('save-failed');
+            i.className = btn._origIcon || 'fa-solid fa-floppy-disk';
+        }, 2000);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 角色列表
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderCharList() {
+    const list = $('nd_char_list');
+    const empty = $('nd_char_empty');
+    const chars = state.characterTags || [];
+    
+    if (!chars.length) {
+        list.innerHTML = '';
+        list.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+    
+    list.style.display = 'flex';
+    empty.style.display = 'none';
+    
+    list.innerHTML = chars.map(c => {
+        const isEditing = editingCharId === c.id;
+        const aliasText = (c.aliases || []).length > 0 ? `别名: ${c.aliases.join(', ')}` : '';
+        const typeLabel = CHARACTER_TYPES.find(t => t.value === c.type)?.label || c.type || 'girl';
+        const appearance = c.appearance || '';
+        
+        if (isEditing) {
+            const typeOptions = CHARACTER_TYPES.map(t => 
+                `<option value="${t.value}"${t.value === (c.type || 'girl') ? ' selected' : ''}>${t.label}</option>`
+            ).join('');
+            
+            return `
+            <div class="char-card editing" data-id="${c.id}">
+                <div class="char-avatar">${getCharEmoji(c.name)}</div>
+                <div class="char-info">
+                    <div class="char-edit-form">
+                        <div class="char-edit-row">
+                            <div class="form-group">
+                                <label class="form-label">角色名称</label>
+                                <input type="text" class="input char-edit-name" value="${escapeHtml(c.name)}" placeholder="角色名称">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">类型</label>
+                                <select class="input char-edit-type">${typeOptions}</select>
+                                <input type="text" class="input char-edit-type-custom hidden" placeholder="如: mature female" style="margin-top:4px;">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">别名（逗号分隔）</label>
+                            <input type="text" class="input char-edit-aliases" value="${escapeHtml((c.aliases || []).join(', '))}" placeholder="小名, 昵称, ...">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">外貌标签 (appearance)</label>
+                            <textarea class="input char-edit-appearance" placeholder="long hair, blue eyes, white dress">${escapeHtml(appearance)}</textarea>
+                            <p class="form-hint">静态外貌描述，LLM 只需补充动作</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">负向标签（可选）</label>
+                            <textarea class="input char-edit-neg" placeholder="避免的特征...">${escapeHtml(c.negativeTags || '')}</textarea>
+                        </div>
+                        <div class="char-edit-row">
+                            <div class="form-group">
+                                <label class="form-label">位置 X (0-1)</label>
+                                <input type="number" class="input char-edit-posx" value="${c.posX ?? 0.5}" min="0" max="1" step="0.1">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">位置 Y (0-1)</label>
+                                <input type="number" class="input char-edit-posy" value="${c.posY ?? 0.5}" min="0" max="1" step="0.1">
+                            </div>
+                        </div>
+                        <div class="btn-group" style="margin-top:12px;">
+                            <button class="btn btn-primary" data-action="save" data-id="${c.id}"><i class="fa-solid fa-check"></i> 保存</button>
+                            <button class="btn" data-action="cancel" data-id="${c.id}">取消</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+        
+        return `
+        <div class="char-card" data-id="${c.id}">
+            <div class="char-avatar">${getCharEmoji(c.name)}</div>
+            <div class="char-info">
+                <div class="char-name">${escapeHtml(c.name)}</div>
+                <div class="char-meta">[${escapeHtml(typeLabel.split(' ')[0])}] ${escapeHtml(aliasText)}</div>
+                <div class="char-tags">✅ ${escapeHtml(appearance || '未设置外貌')}</div>
+                ${c.negativeTags ? `<div class="char-tags" style="color:var(--text-muted);font-size:11px;">❌ ${escapeHtml(c.negativeTags.slice(0, 50))}...</div>` : ''}
+            </div>
+            <div class="char-actions">
+                <button class="btn" data-action="edit" data-id="${c.id}"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn btn-danger" data-action="delete" data-id="${c.id}"><i class="fa-solid fa-trash"></i></button>
+            </div>
+        </div>`;
+    }).join('');
+    
+    list.querySelectorAll('.char-edit-type').forEach(sel => {
+        sel.addEventListener('change', function() {
+            const customInput = this.closest('.char-edit-form').querySelector('.char-edit-type-custom');
+            if (customInput) customInput.classList.toggle('hidden', this.value !== 'custom');
+        });
+    });
+}
+
+function handleCharAction(action, id, card) {
+    if (action === 'edit') {
+        editingCharId = id;
+        renderCharList();
+    } else if (action === 'cancel') {
+        editingCharId = null;
+        renderCharList();
+    } else if (action === 'save') {
+        const char = state.characterTags.find(c => c.id === id);
+        if (!char) return;
+        
+        const name = card.querySelector('.char-edit-name')?.value?.trim();
+        if (!name) { alert('请输入角色名称'); return; }
+        
+        const typeSelect = card.querySelector('.char-edit-type');
+        const typeCustom = card.querySelector('.char-edit-type-custom');
+        let type = typeSelect?.value || 'girl';
+        if (type === 'custom' && typeCustom?.value?.trim()) type = typeCustom.value.trim();
+        
+        char.name = name;
+        char.type = type;
+        char.aliases = (card.querySelector('.char-edit-aliases')?.value || '').split(/[,，]/).map(s => s.trim()).filter(Boolean);
+        char.appearance = card.querySelector('.char-edit-appearance')?.value?.trim() || '';
+        char.negativeTags = card.querySelector('.char-edit-neg')?.value?.trim() || '';
+        char.posX = Math.max(0, Math.min(1, parseFloat(card.querySelector('.char-edit-posx')?.value) || 0.5));
+        char.posY = Math.max(0, Math.min(1, parseFloat(card.querySelector('.char-edit-posy')?.value) || 0.5));
+        
+        editingCharId = null;
+        postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
+        renderCharList();
+    } else if (action === 'delete') {
+        if (confirm('确定删除此角色？')) {
+            state.characterTags = state.characterTags.filter(c => c.id !== id);
+            postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
+            renderCharList();
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 画廊
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderGalleryView() {
+    const container = $('nd_gallery_container');
+    const empty = $('nd_gallery_empty');
+    const chars = Object.keys(gallerySummary);
+    
+    if (!chars.length) {
+        container.innerHTML = '';
+        container.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+    }
+    
+    container.style.display = 'block';
+    empty.style.display = 'none';
+    
+    chars.sort((a, b) => (gallerySummary[b].latestTimestamp || 0) - (gallerySummary[a].latestTimestamp || 0));
+    
+    container.innerHTML = chars.map(charName => {
+        const charData = gallerySummary[charName];
+        const slotCount = Object.keys(charData.slots || {}).length;
+        const sizeMB = ((charData.totalSize || 0) / 1024 / 1024).toFixed(2);
+        
+        return `
+        <div class="gallery-char-section collapsed" data-char="${escapeHtml(charName)}">
+            <div class="gallery-char-header">
+                <div class="gallery-char-avatar">${getCharEmoji(charName)}</div>
+                <span class="gallery-char-name">${escapeHtml(charName)}</span>
+                <span class="gallery-char-stats">${charData.count || 0} 张 · ${slotCount} 组 · ${sizeMB} MB</span>
+                <i class="fa-solid fa-chevron-down gallery-char-toggle"></i>
+            </div>
+            <div class="gallery-slots" data-char="${escapeHtml(charName)}">
+                <div class="gallery-loading"><i class="fa-solid fa-spinner fa-spin"></i> 点击展开加载...</div>
+            </div>
+        </div>`;
+    }).join('');
+    
+    container.querySelectorAll('.gallery-char-header').forEach(header => {
+        header.addEventListener('click', () => {
+            const section = header.closest('.gallery-char-section');
+            const charName = section.dataset.char;
+            const wasCollapsed = section.classList.contains('collapsed');
+            section.classList.toggle('collapsed');
+            
+            if (wasCollapsed && !loadedCharPreviews[charName]) {
+                const slotsDiv = section.querySelector('.gallery-slots');
+                slotsDiv.innerHTML = '<div class="gallery-loading"><i class="fa-solid fa-spinner fa-spin"></i> 加载中...</div>';
+                postToParent({ type: 'LOAD_CHARACTER_PREVIEWS', charName });
+            }
+        });
+    });
+}
+
+function renderCharacterSlots(charName, slots) {
+    const slotsContainer = document.querySelector(`.gallery-slots[data-char="${CSS.escape(charName)}"]`);
+    if (!slotsContainer) return;
+    
+    const slotEntries = Object.entries(slots || {});
+    if (!slotEntries.length) {
+        slotsContainer.innerHTML = '<div class="gallery-empty-hint">暂无图片</div>';
+        return;
+    }
+    
+    slotEntries.sort((a, b) => (b[1][0]?.timestamp || 0) - (a[1][0]?.timestamp || 0));
+    
+    slotsContainer.innerHTML = slotEntries.map(([slotId, images]) => {
+        const latest = images[0];
+        const hasSaved = images.some(img => img.savedUrl);
+        const imgSrc = latest.savedUrl || `data:image/png;base64,${latest.base64}`;
+        
+        return `
+        <div class="gallery-slot" data-slot="${slotId}" data-char="${escapeHtml(charName)}">
+            <img class="gallery-slot-img" src="${imgSrc}" loading="lazy" decoding="async">
+            <div class="gallery-slot-overlay">
+                <div class="gallery-slot-actions">
+                    <button class="btn btn-sm" data-action="view" data-slot="${slotId}" data-char="${escapeHtml(charName)}">
+                        <i class="fa-solid fa-expand"></i> 查看
+                    </button>
+                </div>
+            </div>
+            <div class="gallery-slot-info">
+                <span>${new Date(latest.timestamp).toLocaleDateString()}</span>
+                <div style="display:flex;gap:4px;">
+                    ${images.length > 1 ? `<span class="gallery-slot-badge count">${images.length} 版</span>` : ''}
+                    ${hasSaved ? '<span class="gallery-slot-badge saved">✓</span>' : ''}
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+    
+    slotsContainer.querySelectorAll('[data-action="view"]').forEach(btn => {
+        btn.addEventListener('click', e => { e.stopPropagation(); openGalleryModalFromCache(btn.dataset.char, btn.dataset.slot); });
+    });
+    slotsContainer.querySelectorAll('.gallery-slot').forEach(slot => {
+        slot.addEventListener('click', e => { if (!e.target.closest('[data-action]')) openGalleryModalFromCache(slot.dataset.char, slot.dataset.slot); });
+    });
+}
+
+function openGalleryModalFromCache(charName, slotId) {
+    const slots = loadedCharPreviews[charName];
+    if (!slots || !slots[slotId]) return;
+    modalData = { slotId, images: slots[slotId], currentIndex: 0, charName };
+    renderModalContent();
+    $('nd_gallery_modal').classList.add('visible');
+}
+
+function closeGalleryModal() {
+    $('nd_gallery_modal').classList.remove('visible');
+    modalData = { slotId: null, images: [], currentIndex: 0, charName: null };
+}
+
+function renderModalContent() {
+    const { images, currentIndex } = modalData;
+    if (!images.length) return;
+    const current = images[currentIndex];
+    const imgSrc = current.savedUrl || `data:image/png;base64,${current.base64}`;
+    $('nd_modal_img').src = imgSrc;
+    
+    $('nd_modal_thumbs').innerHTML = images.map((img, i) => {
+        const src = img.savedUrl || `data:image/png;base64,${img.base64}`;
+        const cls = ['gallery-modal-thumb'];
+        if (i === currentIndex) cls.push('active');
+        if (img.savedUrl) cls.push('saved');
+        return `<img class="${cls.join(' ')}" src="${src}" data-index="${i}">`;
+    }).join('');
+    
+    $('nd_modal_thumbs').querySelectorAll('img').forEach(t => {
+        t.addEventListener('click', () => { modalData.currentIndex = parseInt(t.dataset.index); renderModalContent(); });
+    });
+    
+    const saveBtn = $('nd_modal_save');
+    if (current.savedUrl) {
+        saveBtn.innerHTML = '<i class="fa-solid fa-check"></i> 已保存';
+        saveBtn.disabled = true;
+    } else {
+        saveBtn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> 保存到服务器';
+        saveBtn.disabled = false;
+    }
+    
+    $('nd_modal_info').textContent = `${currentIndex + 1} / ${images.length} · ${new Date(current.timestamp).toLocaleString()}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LLM 配置 UI
+// ═══════════════════════════════════════════════════════════════════════════
+
+function updateLlmProviderUI() {
+    const provider = $('nd_llm_provider').value;
+    const pv = providerDefaults[provider] || providerDefaults.custom;
+    const isSt = provider === 'st';
+    const hasCache = (state.llmApi?.modelCache?.length || 0) > 0;
+    
+    $('nd_llm_url_row').classList.toggle('hidden', isSt);
+    $('nd_llm_key_row').classList.toggle('hidden', isSt);
+    $('nd_llm_model_manual_row').classList.toggle('hidden', isSt || !pv.needManualModel);
+    $('nd_llm_model_select_row').classList.toggle('hidden', isSt || pv.needManualModel || !hasCache);
+    $('nd_llm_connect_row').classList.toggle('hidden', isSt || !pv.canFetch);
+}
+
+function getCurrentLlmModel() {
+    const provider = $('nd_llm_provider').value;
+    const pv = providerDefaults[provider] || providerDefaults.custom;
+    if (pv.needManualModel) return $('nd_llm_model_manual').value.trim();
+    else if (pv.canFetch) return $('nd_llm_model_select').value || '';
+    return '';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 预设与设置
+// ═══════════════════════════════════════════════════════════════════════════
+
+function applyStateToUI() {
+    updateBadge(state.enabled);
+    updateModeButtons(state.mode);
+    $('nd_show_floor').checked = state.showFloorButton !== false;
+    $('nd_show_floating').checked = state.showFloatingButton === true;
+    
+    $('nd_api_key').value = state.apiKey || '';
+    $('nd_timeout').value = Math.round((state.timeout > 0 ? state.timeout : DEFAULTS.timeout) / 1000);
+    const dMin = state.requestDelay?.min > 0 ? state.requestDelay.min : DEFAULTS.requestDelay.min;
+    const dMax = state.requestDelay?.max > 0 ? state.requestDelay.max : DEFAULTS.requestDelay.max;
+    $('nd_delay').value = `${dMin}-${dMax}`;
+    $('nd_cache_days').value = state.cacheDays >= 1 ? state.cacheDays : DEFAULTS.cacheDays;
+    $('nd_cache_count').textContent = state.cacheStats?.count || 0;
+    $('nd_cache_size').textContent = (state.cacheStats?.sizeMB || 0) + ' MB';
+    
+    const pSel = $('nd_params_preset');
+    pSel.innerHTML = state.paramsPresets.map(p => `<option value="${p.id}">${escapeHtml(p.name || p.id)}</option>`).join('');
+    pSel.value = state.selectedParamsPresetId || '';
+    
+    applyParamsPreset();
+    applyLlmApi();
+    renderCharList();
+    renderGalleryView();
+}
+
+function applyParamsPreset() {
+    const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId) || state.paramsPresets[0];
+    if (!p) return;
+    
+    $('nd_positive').value = p.positivePrefix || '';
+    $('nd_negative').value = p.negativePrefix || '';
+    
+    const pm = p.params || {};
+    const dp = DEFAULTS.params;
+    
+    setSelectOrCustom('model', pm.model || dp.model);
+    setSelectOrCustom('sampler', pm.sampler || dp.sampler);
+    setSelectOrCustom('scheduler', pm.scheduler || dp.scheduler);
+    
+    $('nd_steps').value = pm.steps ?? dp.steps;
+    $('nd_scale').value = pm.scale ?? dp.scale;
+    $('nd_seed').value = pm.seed ?? dp.seed;
+    $('nd_width').value = pm.width ?? dp.width;
+    $('nd_height').value = pm.height ?? dp.height;
+    updateSizePreset();
+    
+    $('nd_quality_toggle').value = (pm.qualityToggle ?? dp.qualityToggle) ? 'true' : 'false';
+    $('nd_auto_smea').value = (pm.autoSmea ?? dp.autoSmea) ? 'true' : 'false';
+    $('nd_uc_preset').value = pm.ucPreset ?? dp.ucPreset;
+    $('nd_cfg_rescale').value = pm.cfg_rescale ?? dp.cfg_rescale;
+    $('nd_variety_boost').checked = pm.variety_boost ?? dp.variety_boost;
+    $('nd_sm').checked = pm.sm ?? dp.sm;
+    $('nd_sm_dyn').checked = pm.sm_dyn ?? dp.sm_dyn;
+    $('nd_decrisper').checked = pm.decrisper ?? dp.decrisper;
+    
+    updateModelOptions();
+}
+
+function applyLlmApi() {
+    const api = state.llmApi || {};
+    const provider = api.provider || 'st';
+    const pv = providerDefaults[provider] || providerDefaults.custom;
+    
+    $('nd_llm_provider').value = provider;
+    $('nd_llm_url').value = api.url || pv.url || '';
+    $('nd_llm_key').value = api.key || '';
+    $('nd_use_stream').checked = state.useStream !== false;
+    $('nd_use_worldinfo').checked = state.useWorldInfo === true;    
+    if (pv.needManualModel) $('nd_llm_model_manual').value = api.model || '';
+    
+    const mc = api.modelCache || [];
+    const sel = $('nd_llm_model_select');
+    sel.innerHTML = mc.length > 0
+        ? mc.map(m => `<option value="${escapeHtml(m)}"${m === api.model ? ' selected' : ''}>${escapeHtml(m)}</option>`).join('')
+        : '<option value="">请先拉取模型列表</option>';
+    
+    updateLlmProviderUI();
+}
+
+function setSelectOrCustom(kind, value) {
+    const sel = $(`nd_${kind}_sel`);
+    const input = $(`nd_${kind}`);
+    const has = [...sel.options].some(o => o.value === value);
+    sel.value = has ? value : 'custom';
+    input.classList.toggle('hidden', sel.value !== 'custom');
+    input.value = value || '';
+}
+
+function updateSizePreset() {
+    const w = $('nd_width').value;
+    const h = $('nd_height').value;
+    const val = `${w}x${h}`;
+    const sel = $('nd_size_preset');
+    const has = [...sel.options].some(o => o.value === val);
+    sel.value = has ? val : 'custom';
+    $('nd_custom_size').classList.toggle('hidden', sel.value !== 'custom');
+}
+
+function updateModelOptions() {
+    const model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
+    const isV3 = model.includes('nai-diffusion-3') || model.includes('furry-3');
+    $('nd_v3_opts').classList.toggle('hidden', !isV3);
+}
+
+function collectParamsPreset() {
+    const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId);
+    if (!p) return;
+    
+    p.positivePrefix = $('nd_positive').value;
+    p.negativePrefix = $('nd_negative').value;
+    p.params = p.params || {};
+    p.params.model = $('nd_model_sel').value === 'custom' ? $('nd_model').value : $('nd_model_sel').value;
+    p.params.sampler = $('nd_sampler_sel').value === 'custom' ? $('nd_sampler').value : $('nd_sampler_sel').value;
+    p.params.scheduler = $('nd_scheduler_sel').value === 'custom' ? $('nd_scheduler').value : $('nd_scheduler_sel').value;
+    p.params.steps = Number($('nd_steps').value) || 23;
+    p.params.scale = Number($('nd_scale').value) || 5;
+    p.params.seed = Number($('nd_seed').value);
+    p.params.width = Number($('nd_width').value) || 832;
+    p.params.height = Number($('nd_height').value) || 1216;
+    p.params.qualityToggle = $('nd_quality_toggle').value === 'true';
+    p.params.autoSmea = $('nd_auto_smea').value === 'true';
+    p.params.ucPreset = Number($('nd_uc_preset').value) || 0;
+    p.params.cfg_rescale = Number($('nd_cfg_rescale').value) || 0;
+    p.params.variety_boost = $('nd_variety_boost').checked;
+    p.params.sm = $('nd_sm').checked;
+    p.params.sm_dyn = $('nd_sm_dyn').checked;
+    p.params.decrisper = $('nd_decrisper').checked;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 消息处理
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Guarded by origin/source check.
+window.addEventListener('message', event => {
+    if (event.origin !== PARENT_ORIGIN || event.source !== window.parent) return;
+    const data = event.data;
+    if (!data || data.source !== 'LittleWhiteBox-NovelDraw') return;
+
+    switch (data.type) {
+        case 'INIT_DATA':
+            state = { ...state, ...data.settings, cacheStats: data.cacheStats || state.cacheStats };
+            gallerySummary = data.gallerySummary || {};
+            loadedCharPreviews = {};
+            applyStateToUI();
+            shuffleCredits();
+            break;
+            
+        case 'CHARACTER_PREVIEWS_LOADED':
+            loadedCharPreviews[data.charName] = data.slots;
+            renderCharacterSlots(data.charName, data.slots);
+            break;
+            
+        case 'TEST_RESULT':
+            $('nd_preview_img').src = data.url;
+            $('nd_preview').classList.add('visible');
+            break;
+            
+        case 'STATUS':
+            updateStatus($('nd_status'), data.state, data.text);
+            updateStatus($('nd_api_status'), data.state, data.text);
+            updateStatus($('nd_llm_status'), data.state, data.text);
+            const fetchBtn = $('nd_llm_fetch');
+            if (fetchBtn?.disabled) {
+                fetchBtn.disabled = false;
+                fetchBtn.innerHTML = '<i class="fa-solid fa-plug"></i> 连接 / 拉取模型列表';
+            }
+            if (data.state === 'success' || data.state === 'error') handleSaveResult(data.state === 'success');
+            break;
+            
+        case 'GALLERY_IMAGE_DELETED':
+            if (modalData.charName && loadedCharPreviews[modalData.charName]) {
+                const slots = loadedCharPreviews[modalData.charName];
+                for (const slotId in slots) {
+                    slots[slotId] = slots[slotId].filter(img => img.imgId !== data.imgId);
+                    if (slots[slotId].length === 0) delete slots[slotId];
+                }
+                if (Object.keys(slots).length === 0) {
+                    delete loadedCharPreviews[modalData.charName];
+                    delete gallerySummary[modalData.charName];
+                    renderGalleryView();
+                } else {
+                    renderCharacterSlots(modalData.charName, slots);
+                }
+            }
+            if (modalData.slotId) {
+                modalData.images = modalData.images.filter(img => img.imgId !== data.imgId);
+                if (modalData.images.length === 0) closeGalleryModal();
+                else {
+                    if (modalData.currentIndex >= modalData.images.length) modalData.currentIndex = modalData.images.length - 1;
+                    renderModalContent();
+                }
+            }
+            postToParent({ type: 'REFRESH_CACHE_STATS' });
+            break;
+            
+        case 'GALLERY_IMAGE_SAVED':
+            if (modalData.charName && loadedCharPreviews[modalData.charName]) {
+                for (const slotId in loadedCharPreviews[modalData.charName]) {
+                    const img = loadedCharPreviews[modalData.charName][slotId].find(i => i.imgId === data.imgId);
+                    if (img) {
+                        img.savedUrl = data.savedUrl;
+                        renderCharacterSlots(modalData.charName, loadedCharPreviews[modalData.charName]);
+                        break;
+                    }
+                }
+            }
+            if (modalData.slotId) {
+                const img = modalData.images.find(i => i.imgId === data.imgId);
+                if (img) { img.savedUrl = data.savedUrl; renderModalContent(); }
+            }
+            break;
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 初始化
+// ═══════════════════════════════════════════════════════════════════════════
+
+document.addEventListener('DOMContentLoaded', () => {
+    shuffleCredits();
+    // ═══════════════════════════════════════════════════════════════════════
+    // 导航切换
+    // ═══════════════════════════════════════════════════════════════════════
+    $$('.nav-item, .mobile-nav-item').forEach(item => item.addEventListener('click', () => switchView(item.dataset.view)));
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 模式切换
+    // ═══════════════════════════════════════════════════════════════════════
+    $$('.header-mode button').forEach(btn => btn.addEventListener('click', () => {
+        state.mode = btn.dataset.mode;
+        updateModeButtons(state.mode);
+        postToParent({ type: 'SAVE_MODE', mode: state.mode });
+    }));
+
+    $('nd_show_floor').addEventListener('change', () => {
+        postToParent({
+            type: 'SAVE_BUTTON_MODE',
+            showFloorButton: $('nd_show_floor').checked,
+            showFloatingButton: $('nd_show_floating').checked
+        });
+    });
+
+    $('nd_show_floating').addEventListener('change', () => {
+        postToParent({
+            type: 'SAVE_BUTTON_MODE',
+            showFloorButton: $('nd_show_floor').checked,
+            showFloatingButton: $('nd_show_floating').checked
+        });
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 关闭按钮
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_close').addEventListener('click', () => postToParent({ type: 'CLOSE' }));
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // API 配置
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_toggle_key').addEventListener('click', () => {
+        const i = $('nd_api_key');
+        const ic = $('nd_toggle_key').querySelector('i');
+        if (i.type === 'password') { i.type = 'text'; ic.className = 'fa-solid fa-eye-slash'; }
+        else { i.type = 'password'; ic.className = 'fa-solid fa-eye'; }
+    });
+    
+    $('nd_save_api').addEventListener('click', () => {
+        setSavingState($('nd_save_api'));
+        postToParent({ type: 'SAVE_API_KEY', apiKey: $('nd_api_key').value.trim() });
+        postToParent({ type: 'SAVE_TIMEOUT', timeout: Number($('nd_timeout').value) * 1000 || 180000, requestDelay: parseDelay($('nd_delay').value) });
+    });
+    
+    $('nd_test_api').addEventListener('click', () => postToParent({ type: 'TEST_API', apiKey: $('nd_api_key').value.trim() }));
+    
+    $('nd_test_single').addEventListener('click', () => postToParent({ type: 'TEST_SINGLE', tags: $('nd_test_tags').value }));
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 模型/采样器/调度器选择
+    // ═══════════════════════════════════════════════════════════════════════
+    ['model', 'sampler', 'scheduler'].forEach(k => {
+        $(`nd_${k}_sel`).addEventListener('change', function() {
+            $(`nd_${k}`).classList.toggle('hidden', this.value !== 'custom');
+            if (k === 'model') updateModelOptions();
+        });
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 尺寸预设
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_size_preset').addEventListener('change', function() {
+        if (this.value === 'custom') {
+            $('nd_custom_size').classList.remove('hidden');
+        } else {
+            const [w, h] = this.value.split('x');
+            $('nd_width').value = w;
+            $('nd_height').value = h;
+            $('nd_custom_size').classList.add('hidden');
+        }
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 参数预设管理
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_params_preset').addEventListener('change', () => { 
+        state.selectedParamsPresetId = $('nd_params_preset').value; 
+        applyParamsPreset(); 
+    });
+    
+    $('nd_params_save').addEventListener('click', () => {
+        setSavingState($('nd_params_save'));
+        collectParamsPreset();
+        postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
+    });
+    
+    $('nd_params_add').addEventListener('click', () => postToParent({ type: 'ADD_PARAMS_PRESET' }));
+    
+    $('nd_params_del').addEventListener('click', () => { 
+        if (confirm('确定删除当前参数预设？')) postToParent({ type: 'DEL_PARAMS_PRESET' }); 
+    });
+    
+    $('nd_params_rename').addEventListener('click', () => {
+        const p = state.paramsPresets.find(x => x.id === state.selectedParamsPresetId);
+        if (!p) return;
+        const name = prompt('输入新名称：', p.name || '');
+        if (name && name.trim()) {
+            p.name = name.trim();
+            postToParent({ type: 'SAVE_PARAMS_PRESET', selectedParamsPresetId: state.selectedParamsPresetId, paramsPresets: state.paramsPresets });
+        }
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 云端预设（新增）
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_params_cloud').addEventListener('click', () => {
+        postToParent({ type: 'OPEN_CLOUD_PRESETS' });
+    });
+    
+    $('nd_params_export').addEventListener('click', () => {
+        postToParent({ type: 'EXPORT_CURRENT_PRESET', presetId: state.selectedParamsPresetId });
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 角色标签
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_char_header').addEventListener('click', () => { $('nd_char_card').classList.toggle('collapsed'); });
+    
+    $('nd_char_add').addEventListener('click', () => {
+        const nc = { id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, name: '', aliases: [], type: 'girl', appearance: '', negativeTags: '', posX: 0.5, posY: 0.5 };
+        state.characterTags.push(nc);
+        editingCharId = nc.id;
+        renderCharList();
+        setTimeout(() => document.querySelector('.char-edit-name')?.focus(), 50);
+    });
+    
+    $('nd_char_list').addEventListener('click', e => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const card = btn.closest('.char-card');
+        const id = btn.dataset.id || card?.dataset.id;
+        if (id) handleCharAction(btn.dataset.action, id, card);
+    });
+    
+    $('nd_char_export').addEventListener('click', () => {
+        if (!state.characterTags?.length) { alert('没有可导出的角色'); return; }
+        const d = { type: 'novel-draw-characters', version: 2, characters: state.characterTags };
+        const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'character-tags.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    });
+    
+    $('nd_char_import').addEventListener('change', async e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const d = JSON.parse(text);
+            if (d.type !== 'novel-draw-characters' || !Array.isArray(d.characters)) throw new Error('无效文件');
+            for (const char of d.characters) {
+                if (!char.name) continue;
+                if (char.tags && !char.appearance) char.appearance = char.tags;
+                if (!char.type) char.type = 'girl';
+                
+                const ex = state.characterTags.find(c => c.name === char.name);
+                if (ex) Object.assign(ex, char, { id: ex.id });
+                else state.characterTags.push({ ...char, id: `char-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` });
+            }
+            postToParent({ type: 'SAVE_CHARACTER_TAGS', characterTags: state.characterTags });
+            renderCharList();
+            alert(`导入 ${d.characters.length} 个角色`);
+        } catch (err) {
+            alert('导入失败: ' + err.message);
+        }
+        e.target.value = '';
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // LLM 配置
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_llm_provider').addEventListener('change', function() {
+        const pv = providerDefaults[this.value] || providerDefaults.custom;
+        if (pv.url) $('nd_llm_url').value = pv.url;
+        if (!pv.canFetch) { state.llmApi = state.llmApi || {}; state.llmApi.modelCache = []; }
+        updateLlmProviderUI();
+    });
+    
+    $('nd_llm_fetch').addEventListener('click', () => {
+        const btn = $('nd_llm_fetch');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 连接中...';
+        postToParent({ type: 'FETCH_LLM_MODELS', llmApi: { provider: $('nd_llm_provider').value, url: $('nd_llm_url').value.trim(), key: $('nd_llm_key').value.trim() } });
+    });
+    
+    $('nd_llm_save').addEventListener('click', () => {
+        setSavingState($('nd_llm_save'));
+        postToParent({
+            type: 'SAVE_LLM_API',
+            llmApi: {
+                provider: $('nd_llm_provider').value,
+                url: $('nd_llm_url').value.trim(),
+                key: $('nd_llm_key').value.trim(),
+                model: getCurrentLlmModel(),
+                modelCache: state.llmApi?.modelCache || []
+            },
+            useStream: $('nd_use_stream').checked,
+            useWorldInfo: $('nd_use_worldinfo').checked
+        });
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 图片管理
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_save_cache_days').addEventListener('click', () => {
+        setSavingState($('nd_save_cache_days'));
+        postToParent({ type: 'SAVE_CACHE_DAYS', cacheDays: Number($('nd_cache_days').value) || 3 });
+    });
+    
+    $('nd_clear_expired').addEventListener('click', () => postToParent({ type: 'CLEAR_EXPIRED_CACHE' }));
+    
+    $('nd_clear_all').addEventListener('click', () => { 
+        if (confirm('确定清空全部图片记录？已保存到服务器的文件不会被删除。')) postToParent({ type: 'CLEAR_ALL_CACHE' }); 
+    });
+    
+    $('nd_refresh_stats').addEventListener('click', () => postToParent({ type: 'REFRESH_CACHE_STATS' }));
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 画廊弹窗
+    // ═══════════════════════════════════════════════════════════════════════
+    $('nd_modal_close').addEventListener('click', closeGalleryModal);
+    
+    $('nd_gallery_modal').addEventListener('click', e => { 
+        if (e.target.id === 'nd_gallery_modal') closeGalleryModal(); 
+    });
+    
+    $('nd_modal_use').addEventListener('click', () => {
+        if (!modalData.slotId || !modalData.images.length) return;
+        const c = modalData.images[modalData.currentIndex];
+        postToParent({ type: 'USE_GALLERY_IMAGE', slotId: modalData.slotId, imgId: c.imgId });
+        closeGalleryModal();
+    });
+    
+    $('nd_modal_save').addEventListener('click', () => {
+        if (!modalData.images.length) return;
+        const c = modalData.images[modalData.currentIndex];
+        if (c.savedUrl) return;
+        postToParent({ type: 'SAVE_GALLERY_IMAGE', imgId: c.imgId });
+    });
+    
+    $('nd_modal_delete').addEventListener('click', () => {
+        if (!modalData.images.length) return;
+        const c = modalData.images[modalData.currentIndex];
+        const msg = c.savedUrl ? '确定删除这条记录吗？服务器上的图片文件不会被删除。' : '确定删除这张图片吗？';
+        if (confirm(msg)) postToParent({ type: 'DELETE_GALLERY_IMAGE', imgId: c.imgId });
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════
+    // 通知父窗口准备就绪
+    // ═══════════════════════════════════════════════════════════════════════
+    postToParent({ type: 'FRAME_READY' });
+});
+</script>
+</body>
+</html>
