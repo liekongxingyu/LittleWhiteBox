@@ -633,29 +633,39 @@ function handleFrameMessage(e) {
             SUMMARY_SESSION_ID,
             cfg.api,
             cfg.gen,
-            null // 不需要流式回调，直接等结果
+            null 
           );
+
+          if (!resultText) {
+            throw new Error("AI 返回内容为空，请检查模型配置或 API 余额");
+          }
 
           const match = resultText.match(/\{[\s\S]*\}/);
           if (match) {
-            const mergedEvent = JSON.parse(match[0]);
-            mergedEvent.id = `evt-merged-${Date.now()}`;
-            mergedEvent._addedAt = eventsToMerge[eventsToMerge.length - 1]._addedAt;
-            
-            // 用合并后的一个事件替换原范围事件
-            store.json.events.splice(start, end - start + 1, mergedEvent);
-            store.updatedAt = Date.now();
-            saveSummaryStore();
-            
-            const { chat } = getContext();
-            sendFrameFullData(store, Array.isArray(chat) ? chat.length : 0);
-            xbLog.info(MODULE_ID, "批量合并事件成功");
+            try {
+              const mergedEvent = JSON.parse(match[0]);
+              mergedEvent.id = `evt-merged-${Date.now()}`;
+              mergedEvent._addedAt = eventsToMerge[eventsToMerge.length - 1]._addedAt;
+              
+              store.json.events.splice(start, end - start + 1, mergedEvent);
+              store.updatedAt = Date.now();
+              saveSummaryStore();
+              
+              const { chat } = getContext();
+              sendFrameFullData(store, Array.isArray(chat) ? chat.length : 0);
+              xbLog.info(MODULE_ID, "批量合并事件成功");
+            } catch (jsonErr) {
+              throw new Error(`解析 AI 返回的 JSON 失败：${jsonErr.message}\n内容预览：${resultText.slice(0, 50)}...`);
+            }
+          } else {
+             throw new Error("AI 返回的内容中没有找到有效的 JSON 结构。");
           }
         } catch (e) {
           xbLog.error(MODULE_ID, "合并事件失败", e);
-          postToFrame({ type: "SUMMARY_ERROR", message: "合并事件失败" });
+          postToFrame({ type: "SUMMARY_ERROR", message: `合并失败：${e.message}` });
         } finally {
           setSummaryGenerating(false);
+          postToFrame({ type: "SUMMARY_STATUS", statusText: null });
         }
       })();
       break;
