@@ -382,6 +382,7 @@ function notifyFrameAfterRollback(store) {
     stats: {
       totalFloors,
       summarizedUpTo: lastSummarized + 1,
+      archiveStartFloor: (store.archiveStartMesId ?? -1) + 1,
       eventsCount: store.json?.events?.length || 0,
       pendingFloors: totalFloors - lastSummarized - 1,
     },
@@ -559,21 +560,15 @@ function handleFrameMessage(event) {
       const targetFloor = Math.max(1, Math.min(totalLen, parseInt(data.floor) || 1));
       
       const oldLastSum = store.lastSummarizedMesId ?? -1;
-      const newLastSum = targetFloor - 2; // 因为总结是从 lastSum + 1 开始，所以设为 floor - 2，下一轮就是从 floor - 1 (即 targetFloor) 开始
       
-      // 注意：这里的 targetFloor 是人类理解的楼层 (1-based)
-      // 我们将其转换为 lastSummarizedMesId (0-based 索引)
-      // 如果用户想从第 1 楼开始，lastSummarizedMesId 应该是 -1
-      // 如果用户想从第 100 楼开始，lastSummarizedMesId 应该是 98
+      // 更新进度和永久档案起点
       store.lastSummarizedMesId = targetFloor - 2;
+      store.archiveStartMesId = targetFloor - 2; 
       store.updatedAt = Date.now();
       saveSummaryStore();
 
-      // 同步隐藏逻辑
       if (store.hideSummarizedHistory) {
-          // 先取消旧的隐藏
           if (oldLastSum >= 0) executeSlashCommand(`/unhide 0-${oldLastSum}`);
-          // 执行新的隐藏
           const range = calcHideRange(store.lastSummarizedMesId);
           if (range) executeSlashCommand(`/hide ${range.start}-${range.end}`);
       }
@@ -581,6 +576,86 @@ function handleFrameMessage(event) {
       sendFrameBaseData(store, totalLen);
       updateSummaryExtensionPrompt();
       xbLog.info(MODULE_ID, `通过面板手动设置总结起点为：第 ${targetFloor} 楼`);
+      break;
+    }
+
+    case "MG_DELETE_EVENTS": {
+      const store = getSummaryStore();
+      if (!store?.json?.events) break;
+      const { start, end } = data.range || {};
+      if (start === undefined || end === undefined) break;
+      
+      const removed = store.json.events.splice(start, end - start + 1);
+      store.updatedAt = Date.now();
+      saveSummaryStore();
+      
+      const { chat } = getContext();
+      sendFrameFullData(store, Array.isArray(chat) ? chat.length : 0);
+      xbLog.info(MODULE_ID, `已批量删除 ${removed.length} 个事件`);
+      break;
+    }
+
+    case "MG_MERGE_EVENTS": {
+      const store = getSummaryStore();
+      if (!store?.json?.events) break;
+      const { start, end } = data.range || {};
+      if (start === undefined || end === undefined) break;
+
+      const eventsToMerge = store.json.events.slice(start, end + 1);
+      const eventsText = eventsToMerge.map((e, idx) => `[${idx + 1}] 时刻:${e.timeLabel} 标题:${e.title} 内容:${e.summary}`).join("\n");
+      
+      const mergeSystemPrompt = `你也一个资深作家，现在需要你将一段剧情时间线（多个零碎的事件）进行“史诗级”的合并。
+你的目标是：将这些零碎的、日常的事件，精炼成1个具有概括性的、能体现这段剧情“大势”的总结性事件。
+
+### 注意：
+1. 保持时间顺序，概括这段时间的整体变化。
+2. 继承最后一个事件的时间标号（timeLabel）。
+3. 必须输出 JSON (格式如下)：
+{
+  "timeLabel": "原最后一个事件的时间",
+  "title": "概括性的史诗标题",
+  "summary": "精炼后的合并剧情描述"
+}
+4. 严禁复读原文，要进行深度的意会和概括。
+5. 字数限制：总结内容（summary）应保持在 100 字以内，字数规模应与单条普通事件记录保持一致。`;
+
+      setSummaryGenerating(true);
+      postToFrame({ type: "SUMMARY_STATUS", statusText: "正在合并旧事件..." });
+
+      (async () => {
+        try {
+          const cfg = data.config || {};
+          const resultText = await window.xiaobaixStreamingGeneration.runIncremental(
+            mergeSystemPrompt,
+            `请合并以下事件：\n${eventsText}`,
+            SUMMARY_SESSION_ID,
+            cfg.api,
+            cfg.gen,
+            null // 不需要流式回调，直接等结果
+          );
+
+          const match = resultText.match(/\{[\s\S]*\}/);
+          if (match) {
+            const mergedEvent = JSON.parse(match[0]);
+            mergedEvent.id = `evt-merged-${Date.now()}`;
+            mergedEvent._addedAt = eventsToMerge[eventsToMerge.length - 1]._addedAt;
+            
+            // 用合并后的一个事件替换原范围事件
+            store.json.events.splice(start, end - start + 1, mergedEvent);
+            store.updatedAt = Date.now();
+            saveSummaryStore();
+            
+            const { chat } = getContext();
+            sendFrameFullData(store, Array.isArray(chat) ? chat.length : 0);
+            xbLog.info(MODULE_ID, "批量合并事件成功");
+          }
+        } catch (e) {
+          xbLog.error(MODULE_ID, "合并事件失败", e);
+          postToFrame({ type: "SUMMARY_ERROR", message: "合并事件失败" });
+        } finally {
+          setSummaryGenerating(false);
+        }
+      })();
       break;
     }
 
@@ -673,45 +748,6 @@ function createSummaryBtn(mesId) {
   return btn;
 }
 
-function createSkipBtn(mesId) {
-  const btn = document.createElement("div");
-  btn.className = "mes_btn xiaobaix-story-skip-btn";
-  btn.title = "从此楼开始总结（跳过之前内容）";
-  btn.dataset.mesid = mesId;
-  btn.innerHTML = '<i class="fa-solid fa-forward-step"></i>';
-  btn.addEventListener("click", async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!getSettings().storySummary?.enabled) return;
-
-    const mId = Number(mesId);
-    if (
-      confirm(
-        `确定要从第 ${mId + 1} 楼开始总结，并跳过之前的所有未处理对话吗？`,
-      )
-    ) {
-      const store = getSummaryStore();
-      if (store) {
-        store.lastSummarizedMesId = mId - 1;
-        store.updatedAt = Date.now();
-        saveSummaryStore();
-
-        if (store.hideSummarizedHistory) {
-          const range = calcHideRange(store.lastSummarizedMesId);
-          if (range) executeSlashCommand(`/hide ${range.start}-${range.end}`);
-        }
-
-        await executeSlashCommand(
-          `/echo 已将总结起点重置为 ${mId + 1} 楼。之后的新剧情将从此处开始追踪。`,
-        );
-        const { chat } = getContext();
-        sendFrameBaseData(store, Array.isArray(chat) ? chat.length : 0);
-        updateSummaryExtensionPrompt();
-      }
-    }
-  });
-  return btn;
-}
 
 function addSummaryBtnToMessage(mesId) {
   if (!getSettings().storySummary?.enabled) return;
@@ -719,17 +755,12 @@ function addSummaryBtnToMessage(mesId) {
   if (!msg || msg.querySelector(".xiaobaix-story-summary-btn")) return;
 
   const sumBtn = createSummaryBtn(mesId);
-  const skipBtn = createSkipBtn(mesId);
 
-  if (window.registerButtonToSubContainer?.(mesId, sumBtn)) {
-    window.registerButtonToSubContainer?.(mesId, skipBtn);
-    return;
-  }
+  if (window.registerButtonToSubContainer?.(mesId, sumBtn)) return;
 
   const container = msg.querySelector(".flex-container.flex1.alignitemscenter");
   if (container) {
     container.appendChild(sumBtn);
-    container.appendChild(skipBtn);
   }
 }
 
@@ -770,6 +801,7 @@ function sendFrameBaseData(store, totalFloors) {
     stats: {
       totalFloors,
       summarizedUpTo: lastSummarized + 1,
+      archiveStartFloor: (store?.archiveStartMesId ?? -1) + 1,
       eventsCount: store?.json?.events?.length || 0,
       pendingFloors: totalFloors - lastSummarized - 1,
       hiddenCount,
@@ -1268,7 +1300,7 @@ function unregisterEvents() {
   events.cleanup();
   CacheRegistry.unregister(MODULE_ID);
   eventsRegistered = false;
-  $(".xiaobaix-story-summary-btn, .xiaobaix-story-skip-btn").remove();
+  $(".xiaobaix-story-summary-btn").remove();
   hideOverlay();
   clearSummaryExtensionPrompt();
 }
