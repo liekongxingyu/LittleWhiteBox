@@ -1383,6 +1383,8 @@
                 padding: 6px 12px
             }
         }
+        .spinner-small { width: 12px; height: 12px; border: 2px solid var(--txt3); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 
@@ -1426,6 +1428,10 @@
                 </svg>设置</button>
             <button class="btn" id="btn-clear">清空</button>
             <button class="btn btn-p" id="btn-generate">总结</button>
+        </div>
+        <div id="status-display" style="font-size: 0.75rem; color: var(--txt3); padding: 4px 16px; border-bottom: 1px solid var(--bdr); background: var(--bg2); display: none; align-items: center; gap: 8px;">
+            <div class="spinner-small"></div>
+            <span id="status-text"></span>
         </div>
         <main>
             <div class="left">
@@ -1793,6 +1799,15 @@
             case 'SUMMARY_BASE_DATA': if (d.stats) { updateStats(d.stats); $('summarized-count').textContent = d.stats.hiddenCount ?? 0; if (d.stats.summarizedUpTo !== undefined) $('start-floor-input').value = d.stats.summarizedUpTo } if (d.hideSummarized !== undefined) $('hide-summarized').checked = d.hideSummarized; if (d.keepVisibleCount !== undefined) $('keep-visible-count').value = d.keepVisibleCount; break; 
             case 'SUMMARY_FULL_DATA': if (d.payload) { const p = d.payload; summaryData.lastSummarizedMesId = p.lastSummarizedMesId; if (p.keywords) renderKeywords(p.keywords); if (p.events) renderTimeline(p.events); if (p.characters) renderRelations(p.characters); if (p.arcs) renderArcs(p.arcs); $('stat-events').textContent = p.events?.length || 0; if (p.lastSummarizedMesId != null) $('start-floor-input').value = p.lastSummarizedMesId + 1; if (p.stats) updateStats(p.stats) } break; 
             case 'SUMMARY_ERROR': console.error('Summary error:', d.message); break; 
+            case 'SUMMARY_STATUS': 
+                const sd = $('status-display');
+                if (d.statusText) {
+                    sd.style.display = 'flex';
+                    $('status-text').textContent = d.statusText;
+                } else {
+                    sd.style.display = 'none';
+                }
+                break;
             case 'SUMMARY_CLEARED': const t = d.payload?.totalFloors || 0; $('stat-events').textContent = 0; $('start-floor-input').value = 1; $('stat-pending').textContent = t; $('summarized-count').textContent = 0; summaryData = { keywords: [], events: [], characters: { main: [], relationships: [] }, arcs: [] }; renderKeywords([]); renderTimeline([]); renderRelations(null); renderArcs([]); break; 
             case 'LOAD_PANEL_CONFIG': if (d.config) { applyConfig(d.config); } break } };
 

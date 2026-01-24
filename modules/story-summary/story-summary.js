@@ -425,10 +425,12 @@ function flushPendingFrameMessages() {
   pendingFrameMessages = [];
 }
 
-function handleFrameMessage(event) {
-  const iframe = document.getElementById("xiaobaix-story-summary-iframe");
-  if (!isTrustedMessage(event, iframe, "LittleWhiteBox-StoryFrame")) return;
-  const data = event.data;
+function handleFrameMessage(e) {
+  if (e.origin !== window.location.origin) return;
+  const data = e.data;
+  if (!data || data.source !== "LittleWhiteBox-StoryFrame") return;
+
+  console.log(`[StorySummary] Received message from frame: ${data.type}`, data);
 
   switch (data.type) {
     case "FRAME_READY":
