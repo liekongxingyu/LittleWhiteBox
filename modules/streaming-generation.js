@@ -350,6 +350,27 @@ class StreamingGeneration {
     }
 
 
+    async runIncremental(systemPrompt, userPrompt, sessionId, apiOptions, genParams, callback) {
+        const sid = this._getSlotId(sessionId);
+        const isST = apiOptions?.provider === 'st';
+        const common = {
+            messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt }
+            ],
+            apiOptions: {
+                api: isST ? undefined : apiOptions?.provider,
+                apiurl: isST ? undefined : apiOptions?.url,
+                apipassword: isST ? undefined : apiOptions?.key,
+                model: isST ? undefined : apiOptions?.model,
+                ...genParams
+            }
+        };
+        // 如果提供了 callback，目前该简化接口暂不支持流式回调到外部，仅支持等待完成
+        // 这里强制使用 processGeneration 的结果返回
+        return await this.processGeneration(common, userPrompt, sid, !!callback);
+    }
+
     async _emitPromptReady(chatArray) {
         try {
             if (Array.isArray(chatArray)) {
