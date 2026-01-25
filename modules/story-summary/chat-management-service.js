@@ -11,8 +11,16 @@ const MODULE_ID = "storySummary";
  * @returns {Promise<{affectedMessages: number, deletedFields: number}>}
  */
 export async function pruneFieldsFromChat(pattern, keepRecentCount = 0) {
-    const { chat } = getContext();
-    if (!Array.isArray(chat)) return { affectedMessages: 0, deletedFields: 0 };
+    // 尝试多种方式获取完整的聊天记录，防止因正则筛选或显示限制导致只获取到部分楼层
+    const context = getContext();
+    const chat = context?.chat || window.chat || (typeof SillyTavern !== 'undefined' ? SillyTavern.getContext()?.chat : null);
+    
+    if (!Array.isArray(chat) || chat.length === 0) {
+        xbLog.warn(MODULE_ID, "未能获取到有效的聊天记录数组");
+        return { affectedMessages: 0, deletedFields: 0 };
+    }
+
+    xbLog.info(MODULE_ID, `准备清理元数据：当前检测到 ${chat.length} 条消息`);
 
     let affectedMessages = 0;
     let deletedFields = 0;
