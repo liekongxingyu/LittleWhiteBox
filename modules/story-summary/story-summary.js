@@ -258,6 +258,18 @@ async function handleUICommand(data) {
         sendFrameBaseData(store, totalFloors);
         updateSummaryExtensionPrompt();
         break;
+
+    case "MG_DELETE_EVENTS":
+        genService.runEventsDelete(data.range, stateRef);
+        break;
+
+    case "MG_MERGE_EVENTS":
+        genService.runEventsMerge(data.range, data.config, stateRef);
+        break;
+
+    case "UPDATE_KEEP_VISIBLE":
+        storeService.setKeepVisibleCount(data.count);
+        break;
   }
 }
 

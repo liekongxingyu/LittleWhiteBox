@@ -123,6 +123,18 @@ Existing summary fully analyzed and indexed. I understand:
 I will extract only genuinely NEW elements from the upcoming dialogue.
 Please provide the new dialogue content requiring incremental analysis.`,
 
+    mergeEventsPrompt: `As a Summary Specialist, your task is to MERGE several sequential story events into a single, cohesive, and higher-level event.
+The goal is to maintain the narrative flow while reducing the number of events.
+
+[Input]
+A list of story events (JSON).
+
+[Output Requirement]
+A single event object in the same JSON format as the input.
+Ensure the 'summary' covers the key points of all merged events and accurately reflects the total floor range (e.g., if merging #10-15 and #16-20, the result should be #10-20).
+Maintain logical consistency for title, timeLabel, participants, type, and weight based on the combined content.
+Output only the JSON object for the new merged event.`,
+
     metaProtocolStart: `
 Summary Specialist:
 ACKNOWLEDGED. Beginning structured JSON generation:
@@ -375,4 +387,39 @@ export async function generateSummary(options) {
     console.groupEnd();
 
     return rawOutput;
+}
+
+/**
+ * 将多个事件合并为一个
+ */
+export async function generateEventMerge(events, llmApi = {}, genParams = {}) {
+    if (!Array.isArray(events) || events.length === 0) return null;
+
+    const streamingMod = getStreamingModule();
+    if (!streamingMod) throw new Error('生成模块未加载');
+
+    const promptMessages = [
+        { role: 'system', content: LLM_PROMPT_CONFIG.topSystem },
+        { role: 'user', content: `${LLM_PROMPT_CONFIG.mergeEventsPrompt}\n\n[Events to Merge]\n${JSON.stringify(events, null, 2)}` }
+    ];
+
+    const args = {
+        as: 'user',
+        nonstream: 'true',
+        top64: b64UrlEncode(JSON.stringify(promptMessages)),
+        id: 'xb_merge'
+    };
+
+    if (llmApi.provider && llmApi.provider !== 'st') {
+        const mappedApi = PROVIDER_MAP[String(llmApi.provider).toLowerCase()];
+        if (mappedApi) {
+            args.api = mappedApi;
+            if (llmApi.url) args.apiurl = llmApi.url;
+            if (llmApi.key) args.apipassword = llmApi.key;
+            if (llmApi.model) args.model = llmApi.model;
+        }
+    }
+
+    const raw = await streamingMod.xbgenrawCommand(args, '');
+    return parseSummaryJson(raw);
 }

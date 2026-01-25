@@ -14,6 +14,32 @@ const MODULE_ID = "storySummary";
 // 存储访问
 // ═══════════════════════════════════════════════════════════════════════════
 
+export function setKeepVisibleCount(count) {
+  const store = getSummaryStore();
+  if (store) {
+    store.keepVisibleCount = count;
+    saveSummaryStore();
+  }
+}
+
+export function deleteEvents(store, start, end) {
+  if (!store?.json?.events) return false;
+  const count = end - start + 1;
+  store.json.events.splice(start, count);
+  store.updatedAt = Date.now();
+  saveSummaryStore();
+  return true;
+}
+
+export function replaceEventsRange(store, start, end, newEvent) {
+  if (!store?.json?.events) return false;
+  const count = end - start + 1;
+  store.json.events.splice(start, count, newEvent);
+  store.updatedAt = Date.now();
+  saveSummaryStore();
+  return true;
+}
+
 export function getSummaryStore() {
   const { chatId } = getContext();
   if (!chatId) return null;

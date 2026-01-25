@@ -2,11 +2,67 @@
 import { getContext } from "../../../../../extensions.js";
 import { extension_prompts, extension_prompt_types, extension_prompt_roles } from "../../../../../../script.js";
 import { xbLog } from "../../core/debug-core.js";
-import { generateSummary, parseSummaryJson } from "./llm-service.js";
+import { generateSummary, parseSummaryJson, generateEventMerge } from "./llm-service.js";
 import * as storeService from "./store-service.js";
 import * as uiBridge from "./ui-bridge.js";
-
 const MODULE_ID = "storySummary";
+
+export async function runEventsMerge(range, configFromFrame, stateRef) {
+  const store = storeService.getSummaryStore();
+  if (!store?.json?.events) return;
+
+  const { start, end } = range;
+  const eventsToMerge = store.json.events.slice(start, end + 1);
+  if (eventsToMerge.length === 0) return;
+
+  uiBridge.postToFrame({ type: "SUMMARY_STATUS", statusText: `正在合并第 ${start + 1} 到 ${end + 1} 个事件...` });
+
+  try {
+    const apiCfg = configFromFrame?.api || {};
+    const mergedEvent = await generateEventMerge(eventsToMerge, {
+      provider: apiCfg.provider,
+      url: apiCfg.url,
+      key: apiCfg.key,
+      model: apiCfg.model,
+    });
+
+    if (mergedEvent) {
+      storeService.replaceEventsRange(store, start, end, mergedEvent);
+      uiBridge.postToFrame({
+        type: "SUMMARY_FULL_DATA",
+        payload: {
+          events: store.json.events,
+          lastSummarizedMesId: store.lastSummarizedMesId,
+        },
+      });
+      uiBridge.postToFrame({ type: "SUMMARY_STATUS", statusText: "事件合并成功" });
+      stateRef.updatePrompt();
+    } else {
+      throw new Error("AI 合并返回无效结果");
+    }
+  } catch (err) {
+    xbLog.error(MODULE_ID, "合并失败", err);
+    uiBridge.postToFrame({ type: "SUMMARY_ERROR", message: "合并失败: " + err.message });
+  }
+}
+
+export function runEventsDelete(range, stateRef) {
+  const store = storeService.getSummaryStore();
+  if (!store?.json?.events) return;
+
+  const { start, end } = range;
+  if (storeService.deleteEvents(store, start, end)) {
+    uiBridge.postToFrame({
+      type: "SUMMARY_FULL_DATA",
+      payload: {
+        events: store.json.events,
+        lastSummarizedMesId: store.lastSummarizedMesId,
+      },
+    });
+    uiBridge.postToFrame({ type: "SUMMARY_STATUS", statusText: "事件已删除" });
+    stateRef.updatePrompt();
+  }
+}
 const SUMMARY_SESSION_ID = "xb9";
 const SUMMARY_PROMPT_KEY = "LittleWhiteBox_StorySummary";
 
