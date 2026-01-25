@@ -14,38 +14,52 @@ export async function pruneFieldsFromChat(pattern, keepRecentCount = 0) {
     const context = getContext();
     const lowerPattern = pattern.toLowerCase();
     
-    // 方案 1: 从当前上下文中找
-    let chat = context?.chat;
-    let sourceName = "Context";
+    // --- 雷达模式：在内存中肉眼搜寻那个巨大的数组 ---
+    let chat = null;
+    let sourceName = "None";
 
-    // 方案 2: 穿透模式 - 如果 Context 里的太少，去酒馆最底层的 character 存储里挖
-    const currentChid = window.this_chid ?? context?.characterId;
-    if (currentChid != null && window.characters?.[currentChid]?.chat) {
-        const rawChat = window.characters[currentChid].chat;
-        if (Array.isArray(rawChat) && rawChat.length > (Array.isArray(chat) ? chat.length : 0)) {
-            chat = rawChat;
-            sourceName = "CharacterRawDB";
+    const scanForChatArray = () => {
+        // 优先检查已知的可能路径
+        const knownPaths = [
+            { n: 'window.chat', d: window.chat },
+            { n: 'context.chat', d: context?.chat },
+            { n: 'window.original_chat', d: window.original_chat },
+            { n: 'window.raw_chat', d: window.raw_chat },
+            { n: 'window.all_messages', d: window.all_messages },
+            { n: 'CharacterDB', d: window.characters?.[window.this_chid ?? context?.characterId]?.chat }
+        ];
+
+        for (const path of knownPaths) {
+            if (Array.isArray(path.d) && path.d.length > 100) return { d: path.d, n: path.n };
         }
-    }
 
-    // 方案 3: 备份路径检测
-    if (!Array.isArray(chat) || chat.length < 50) {
-        const backups = [window.original_chat, window.raw_chat, window.all_messages];
-        for (const b of backups) {
-            if (Array.isArray(b) && b.length > (Array.isArray(chat) ? chat.length : 0)) {
-                chat = b;
-                sourceName = "LegacyBackup";
+        // 如果已知路径都失败了，启动全域扫描 (寻找长度>100且看起来像聊天的数组)
+        try {
+            for (const key in window) {
+                const val = window[key];
+                if (Array.isArray(val) && val.length > 100) {
+                    // 检查特征：元素是否包含 mes 或 name 属性
+                    if (val[0] && (typeof val[0].mes !== 'undefined' || typeof val[0].name !== 'undefined')) {
+                        return { d: val, n: `Explored_Global_${key}` };
+                    }
+                }
             }
-        }
-    }
+        } catch (e) {}
+        
+        return { d: window.chat || context?.chat, n: "Fallback" };
+    };
+
+    const result = scanForChatArray();
+    chat = result.d;
+    sourceName = result.n;
 
     if (!Array.isArray(chat) || chat.length === 0) {
-        xbLog.warn(MODULE_ID, "未能获取到有效的聊天记录数组");
+        xbLog.warn(MODULE_ID, "雷达扫描未能在内存中找到有效的长聊天记录。");
         return { affectedMessages: 0, deletedFields: 0 };
     }
 
     const totalCount = chat.length;
-    xbLog.info(MODULE_ID, `清理任务发动 [源:${sourceName}]：检测到全量楼层数为 ${totalCount}`);
+    xbLog.info(MODULE_ID, `清理任务发动 [源:${sourceName}]：雷达在内存中锁定了 ${totalCount} 条原始对话记录`);
 
     let affectedMessages = 0;
     let deletedFields = 0;
@@ -74,29 +88,32 @@ export async function pruneFieldsFromChat(pattern, keepRecentCount = 0) {
     });
 
     if (affectedMessages > 0) {
-        xbLog.info(MODULE_ID, `清理完成：匹配 "${pattern}"，处理了 ${affectedMessages}/${totalCount} 条消息，删除 ${deletedFields} 个字段`);
+        xbLog.info(MODULE_ID, `清理完成：匹配 "${pattern}"，修改了 ${affectedMessages}/${totalCount} 条，清除了 ${deletedFields} 个字段`);
         
-        // 关键：强制让酒馆认为数据已变动，且绕过 UI 锁
+        // 尝试唤起原本休眠的保存进程
         setTimeout(() => {
             try {
-                // 如果在某些脚本下 saveChat 会超时，我们尝试通过修改 dirty 状态强制让酒馆在下一个心跳保存
-                if (typeof window.eventSource !== 'undefined') {
-                    // 模拟一个消息被编辑的事件，这通常会强制触发全量保存
-                    window.eventSource.emit('chat_edited', { messageId: 0 });
+                // 1. 手动标记 dirty
+                if (typeof window.setDirty === 'function') window.setDirty();
+                
+                // 2. 模拟消息列表末尾变动
+                if (window.eventSource) {
+                    window.eventSource.emit('chat_edited', { messageId: chat.length - 1 });
+                    window.eventSource.emit('messages_rendered');
                 }
 
-                // 尝试各种级别的保存函数
+                // 3. 执行物理保存
                 if (typeof window.saveChat === 'function') {
                     window.saveChat(); 
                 } else {
                     context?.saveChat?.();
                 }
                 
-                xbLog.info(MODULE_ID, "全量保存指令已发送，请观察 .jsonl 文件大小变化。");
+                xbLog.info(MODULE_ID, "全量同步信号已发出，请观察 2 秒后文件大小。");
             } catch (e) {
-                xbLog.error(MODULE_ID, "自动同步失败", e);
+                xbLog.error(MODULE_ID, "同步失败", e);
             }
-        }, 200);
+        }, 300);
     }
 
     return { affectedMessages, deletedFields, totalCount };
