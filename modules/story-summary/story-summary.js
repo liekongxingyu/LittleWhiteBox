@@ -8,16 +8,18 @@ import {
   saveMetadataDebounced,
 } from "../../../../../extensions.js";
 import {
-  chat_metadata,
   extension_prompts,
   extension_prompt_types,
   extension_prompt_roles,
 } from "../../../../../../script.js";
-import { EXT_ID, extensionFolderPath } from "../../core/constants.js";
+import { EXT_ID } from "../../core/constants.js";
 import { createModuleEvents, event_types } from "../../core/event-manager.js";
 import { xbLog, CacheRegistry } from "../../core/debug-core.js";
-import { postToIframe, isTrustedMessage } from "../../core/iframe-messaging.js";
 import { CommonSettingStorage } from "../../core/server-storage.js";
+
+// 新增解耦服务
+import * as storeService from "./store-service.js";
+import * as uiBridge from "./ui-bridge.js";
 import { generateSummary, parseSummaryJson } from "./llm-service.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -29,7 +31,6 @@ const events = createModuleEvents(MODULE_ID);
 const SUMMARY_SESSION_ID = "xb9";
 const SUMMARY_PROMPT_KEY = "LittleWhiteBox_StorySummary";
 const SUMMARY_CONFIG_KEY = "storySummaryPanelConfig";
-const iframePath = `${extensionFolderPath}/modules/story-summary/story-summary.html`;
 const VALID_SECTIONS = ["keywords", "events", "characters", "arcs"];
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -37,10 +38,7 @@ const VALID_SECTIONS = ["keywords", "events", "characters", "arcs"];
 // ═══════════════════════════════════════════════════════════════════════════
 
 let summaryGenerating = false;
-let overlayCreated = false;
-let frameReady = false;
 let currentMesId = null;
-let pendingFrameMessages = [];
 let eventsRegistered = false;
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -49,37 +47,13 @@ let eventsRegistered = false;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function getKeepVisibleCount() {
-  const store = getSummaryStore();
-  return store?.keepVisibleCount ?? 3;
-}
-
-function calcHideRange(lastSummarized) {
-  const keepCount = getKeepVisibleCount();
-  const hideEnd = lastSummarized - keepCount;
-  if (hideEnd < 0) return null;
-  return { start: 0, end: hideEnd };
-}
-
 function getSettings() {
   const ext = (extension_settings[EXT_ID] ||= {});
   ext.storySummary ||= { enabled: true };
   return ext;
 }
 
-function getSummaryStore() {
-  const { chatId } = getContext();
-  if (!chatId) return null;
-  chat_metadata.extensions ||= {};
-  chat_metadata.extensions[EXT_ID] ||= {};
-  chat_metadata.extensions[EXT_ID].storySummary ||= {};
-  return chat_metadata.extensions[EXT_ID].storySummary;
-}
-
-function saveSummaryStore() {
-  saveMetadataDebounced?.();
-}
-
+// Side Effect: 执行斜杠命令
 async function executeSlashCommand(command) {
   try {
     const executeCmd =
@@ -98,717 +72,24 @@ async function executeSlashCommand(command) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 总结数据工具（保留在主模块，因为依赖 store 对象）
-// ═══════════════════════════════════════════════════════════════════════════
-
-function formatExistingSummaryForAI(store) {
-  if (!store?.json) return "（空白，这是首次总结）";
-  const data = store.json;
-  const parts = [];
-
-  if (data.events?.length) {
-    parts.push("【已记录事件】");
-    data.events.forEach((ev, i) =>
-      parts.push(`${i + 1}. [${ev.timeLabel}] ${ev.title}：${ev.summary}`),
-    );
-  }
-  if (data.characters?.main?.length) {
-    const names = data.characters.main.map((m) =>
-      typeof m === "string" ? m : m.name,
-    );
-    parts.push(`\n【主要角色】${names.join("、")}`);
-  }
-  if (data.characters?.relationships?.length) {
-    parts.push("【人物关系】");
-    data.characters.relationships.forEach((r) =>
-      parts.push(`- ${r.from} → ${r.to}：${r.label}（${r.trend}）`),
-    );
-  }
-  if (data.arcs?.length) {
-    parts.push("【角色弧光】");
-    data.arcs.forEach((a) =>
-      parts.push(
-        `- ${a.name}：${a.trajectory}（进度${Math.round(a.progress * 100)}%）`,
-      ),
-    );
-  }
-  if (data.keywords?.length) {
-    parts.push(`\n【关键词】${data.keywords.map((k) => k.text).join("、")}`);
-  }
-
-  return parts.join("\n") || "（空白，这是首次总结）";
-}
-
-function getNextEventId(store) {
-  const events = store?.json?.events || [];
-  if (events.length === 0) return 1;
-  const maxId = Math.max(
-    ...events.map((e) => {
-      const match = e.id?.match(/evt-(\d+)/);
-      return match ? parseInt(match[1]) : 0;
-    }),
-  );
-  return maxId + 1;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 快照与数据合并
-// ═══════════════════════════════════════════════════════════════════════════
-
-function addSummarySnapshot(store, endMesId) {
-  store.summaryHistory ||= [];
-  store.summaryHistory.push({ endMesId });
-}
-
-function mergeNewData(oldJson, parsed, endMesId) {
-  const merged = structuredClone(oldJson || {});
-  merged.keywords ||= [];
-  merged.events ||= [];
-  merged.characters ||= {};
-  merged.characters.main ||= [];
-  merged.characters.relationships ||= [];
-  merged.arcs ||= [];
-
-  // 关键词：完全替换（全局关键词）
-  if (parsed.keywords?.length) {
-    merged.keywords = parsed.keywords.map((k) => ({
-      ...k,
-      _addedAt: endMesId,
-    }));
-  }
-
-  // 事件：追加
-  (parsed.events || []).forEach((e) => {
-    e._addedAt = endMesId;
-    merged.events.push(e);
-  });
-
-  // 新角色：追加不重复
-  const existingMain = new Set(
-    (merged.characters.main || []).map((m) =>
-      typeof m === "string" ? m : m.name,
-    ),
-  );
-  (parsed.newCharacters || []).forEach((name) => {
-    if (!existingMain.has(name)) {
-      merged.characters.main.push({ name, _addedAt: endMesId });
-    }
-  });
-
-  // 关系：更新或追加
-  const relMap = new Map(
-    (merged.characters.relationships || []).map((r) => [
-      `${r.from}->${r.to}`,
-      r,
-    ]),
-  );
-  (parsed.newRelationships || []).forEach((r) => {
-    const key = `${r.from}->${r.to}`;
-    const existing = relMap.get(key);
-    if (existing) {
-      existing.label = r.label;
-      existing.trend = r.trend;
-    } else {
-      r._addedAt = endMesId;
-      relMap.set(key, r);
-    }
-  });
-  merged.characters.relationships = Array.from(relMap.values());
-
-  // 弧光：更新或追加
-  const arcMap = new Map((merged.arcs || []).map((a) => [a.name, a]));
-  (parsed.arcUpdates || []).forEach((update) => {
-    const existing = arcMap.get(update.name);
-    if (existing) {
-      existing.trajectory = update.trajectory;
-      existing.progress = update.progress;
-      if (update.newMoment) {
-        existing.moments = existing.moments || [];
-        existing.moments.push({ text: update.newMoment, _addedAt: endMesId });
-      }
-    } else {
-      arcMap.set(update.name, {
-        name: update.name,
-        trajectory: update.trajectory,
-        progress: update.progress,
-        moments: update.newMoment
-          ? [{ text: update.newMoment, _addedAt: endMesId }]
-          : [],
-        _addedAt: endMesId,
-      });
-    }
-  });
-  merged.arcs = Array.from(arcMap.values());
-
-  return merged;
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 回滚逻辑
-// ═══════════════════════════════════════════════════════════════════════════
-
-function rollbackSummaryIfNeeded() {
-  const { chat } = getContext();
-  const currentLength = Array.isArray(chat) ? chat.length : 0;
-  const store = getSummaryStore();
-
-  if (
-    !store ||
-    store.lastSummarizedMesId == null ||
-    store.lastSummarizedMesId < 0
-  ) {
-    return false;
-  }
-
-  const lastSummarized = store.lastSummarizedMesId;
-
-  if (currentLength <= lastSummarized) {
-    const deletedCount = lastSummarized + 1 - currentLength;
-
-    if (deletedCount < 2) {
-      return false;
-    }
-
-    xbLog.warn(
-      MODULE_ID,
-      `删除已总结楼层 ${deletedCount} 条，当前${currentLength}，原总结到${lastSummarized + 1}，触发回滚`,
-    );
-
-    const history = store.summaryHistory || [];
-    let targetEndMesId = -1;
-
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].endMesId < currentLength) {
-        targetEndMesId = history[i].endMesId;
-        break;
-      }
-    }
-
-    executeFilterRollback(store, targetEndMesId, currentLength);
-    return true;
-  }
-
-  return false;
-}
-
-function executeFilterRollback(store, targetEndMesId, currentLength) {
-  const oldLastSummarized = store.lastSummarizedMesId ?? -1;
-  const wasHidden = store.hideSummarizedHistory;
-  const oldHideRange = wasHidden ? calcHideRange(oldLastSummarized) : null;
-
-  if (targetEndMesId < 0) {
-    store.lastSummarizedMesId = -1;
-    store.json = null;
-    store.summaryHistory = [];
-    store.hideSummarizedHistory = false;
-  } else {
-    const json = store.json || {};
-
-    json.events = (json.events || []).filter(
-      (e) => (e._addedAt ?? 0) <= targetEndMesId,
-    );
-    json.keywords = (json.keywords || []).filter(
-      (k) => (k._addedAt ?? 0) <= targetEndMesId,
-    );
-    json.arcs = (json.arcs || []).filter(
-      (a) => (a._addedAt ?? 0) <= targetEndMesId,
-    );
-    json.arcs.forEach((a) => {
-      a.moments = (a.moments || []).filter(
-        (m) => typeof m === "string" || (m._addedAt ?? 0) <= targetEndMesId,
-      );
-    });
-
-    if (json.characters) {
-      json.characters.main = (json.characters.main || []).filter(
-        (m) => typeof m === "string" || (m._addedAt ?? 0) <= targetEndMesId,
-      );
-      json.characters.relationships = (
-        json.characters.relationships || []
-      ).filter((r) => (r._addedAt ?? 0) <= targetEndMesId);
-    }
-
-    store.json = json;
-    store.lastSummarizedMesId = targetEndMesId;
-    store.summaryHistory = (store.summaryHistory || []).filter(
-      (h) => h.endMesId <= targetEndMesId,
-    );
-  }
-
-  if (oldHideRange && oldHideRange.end >= 0) {
-    const newHideRange =
-      targetEndMesId >= 0 && store.hideSummarizedHistory
-        ? calcHideRange(targetEndMesId)
-        : null;
-
-    const unhideStart = newHideRange
-      ? Math.min(newHideRange.end + 1, currentLength)
-      : 0;
-    const unhideEnd = Math.min(oldHideRange.end, currentLength - 1);
-
-    if (unhideStart <= unhideEnd) {
-      executeSlashCommand(`/unhide ${unhideStart}-${unhideEnd}`);
-    }
-  }
-
-  store.updatedAt = Date.now();
-  saveSummaryStore();
-  updateSummaryExtensionPrompt();
-  notifyFrameAfterRollback(store);
-}
-
-function notifyFrameAfterRollback(store) {
-  const { chat } = getContext();
-  const totalFloors = Array.isArray(chat) ? chat.length : 0;
-  const lastSummarized = store.lastSummarizedMesId ?? -1;
-
-  if (store.json) {
-    postToFrame({
-      type: "SUMMARY_FULL_DATA",
-      payload: {
-        keywords: store.json.keywords || [],
-        events: store.json.events || [],
-        characters: store.json.characters || { main: [], relationships: [] },
-        arcs: store.json.arcs || [],
-        lastSummarizedMesId: lastSummarized,
-      },
-    });
-  } else {
-    postToFrame({ type: "SUMMARY_CLEARED", payload: { totalFloors } });
-  }
-
-  postToFrame({
-    type: "SUMMARY_BASE_DATA",
-    stats: {
-      totalFloors,
-      summarizedUpTo: lastSummarized + 1,
-      archiveStartFloor: (store.archiveStartMesId ?? -1) + 1,
-      eventsCount: store.json?.events?.length || 0,
-      pendingFloors: totalFloors - lastSummarized - 1,
-    },
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 生成状态管理
+// 控制器辅助函数
 // ═══════════════════════════════════════════════════════════════════════════
 
 function setSummaryGenerating(flag) {
   summaryGenerating = !!flag;
-  postToFrame({ type: "GENERATION_STATE", isGenerating: summaryGenerating });
+  uiBridge.postToFrame({ type: "GENERATION_STATE", isGenerating: summaryGenerating });
 }
 
 function isSummaryGenerating() {
   return summaryGenerating;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// iframe 通讯
-// ═══════════════════════════════════════════════════════════════════════════
-
-function postToFrame(payload) {
-  const iframe = document.getElementById("xiaobaix-story-summary-iframe");
-  if (!iframe?.contentWindow || !frameReady) {
-    pendingFrameMessages.push(payload);
-    return;
-  }
-  postToIframe(iframe, payload, "LittleWhiteBox");
-}
-
-function flushPendingFrameMessages() {
-  if (!frameReady) return;
-  const iframe = document.getElementById("xiaobaix-story-summary-iframe");
-  if (!iframe?.contentWindow) return;
-  pendingFrameMessages.forEach((p) =>
-    postToIframe(iframe, p, "LittleWhiteBox"),
-  );
-  pendingFrameMessages = [];
-}
-
-function handleFrameMessage(e) {
-  if (e.origin !== window.location.origin) return;
-  const data = e.data;
-  if (!data || data.source !== "LittleWhiteBox-StoryFrame") return;
-
-  console.log(`[StorySummary] Received message from frame: ${data.type}`, data);
-
-  switch (data.type) {
-    case "FRAME_READY":
-      frameReady = true;
-      flushPendingFrameMessages();
-      setSummaryGenerating(summaryGenerating);
-      sendSavedConfigToFrame();
-      break;
-
-    case "SETTINGS_OPENED":
-    case "FULLSCREEN_OPENED":
-    case "EDITOR_OPENED":
-      $(".xb-ss-close-btn").hide();
-      break;
-
-    case "SETTINGS_CLOSED":
-    case "FULLSCREEN_CLOSED":
-    case "EDITOR_CLOSED":
-      $(".xb-ss-close-btn").show();
-      break;
-
-    case "REQUEST_GENERATE": {
-      const ctx = getContext();
-      currentMesId = (ctx.chat?.length ?? 1) - 1;
-      runSummaryGeneration(currentMesId, data.config || {});
-      break;
-    }
-
-    case "REQUEST_CANCEL":
-      window.xiaobaixStreamingGeneration?.cancel?.(SUMMARY_SESSION_ID);
-      setSummaryGenerating(false);
-      postToFrame({ type: "SUMMARY_STATUS", statusText: "已停止" });
-      break;
-
-    case "REQUEST_CLEAR": {
-      const { chat } = getContext();
-      const store = getSummaryStore();
-      if (store) {
-        delete store.json;
-        store.lastSummarizedMesId = -1;
-        store.updatedAt = Date.now();
-        saveSummaryStore();
-      }
-      clearSummaryExtensionPrompt();
-      postToFrame({
-        type: "SUMMARY_CLEARED",
-        payload: { totalFloors: Array.isArray(chat) ? chat.length : 0 },
-      });
-      xbLog.info(MODULE_ID, "总结数据已清空");
-      break;
-    }
-
-    case "CLOSE_PANEL":
-      hideOverlay();
-      break;
-
-    case "UPDATE_SECTION": {
-      const store = getSummaryStore();
-      if (!store) break;
-      store.json ||= {};
-      if (VALID_SECTIONS.includes(data.section)) {
-        store.json[data.section] = data.data;
-      }
-      store.updatedAt = Date.now();
-      saveSummaryStore();
-      updateSummaryExtensionPrompt();
-      break;
-    }
-
-    case "TOGGLE_HIDE_SUMMARIZED": {
-      const store = getSummaryStore();
-      if (!store) break;
-      const lastSummarized = store.lastSummarizedMesId ?? -1;
-      if (lastSummarized < 0) break;
-      store.hideSummarizedHistory = !!data.enabled;
-      saveSummaryStore();
-      if (data.enabled) {
-        const range = calcHideRange(lastSummarized);
-        if (range) executeSlashCommand(`/hide ${range.start}-${range.end}`);
-      } else {
-        executeSlashCommand(`/unhide 0-${lastSummarized}`);
-      }
-      break;
-    }
-
-    case "UPDATE_KEEP_VISIBLE": {
-      const store = getSummaryStore();
-      if (!store) break;
-
-      const oldCount = store.keepVisibleCount ?? 3;
-      const newCount = Math.max(0, Math.min(50, parseInt(data.count) || 3));
-
-      if (newCount === oldCount) break;
-
-      store.keepVisibleCount = newCount;
-      saveSummaryStore();
-
-      const lastSummarized = store.lastSummarizedMesId ?? -1;
-
-      if (store.hideSummarizedHistory && lastSummarized >= 0) {
-        (async () => {
-          await executeSlashCommand(`/unhide 0-${lastSummarized}`);
-          const range = calcHideRange(lastSummarized);
-          if (range) {
-            await executeSlashCommand(`/hide ${range.start}-${range.end}`);
-          }
-          const { chat } = getContext();
-          sendFrameBaseData(store, Array.isArray(chat) ? chat.length : 0);
-        })();
-      } else {
-        const { chat } = getContext();
-        sendFrameBaseData(store, Array.isArray(chat) ? chat.length : 0);
-      }
-      break;
-    }
-
-    case "SAVE_PANEL_CONFIG":
-      if (data.config) {
-        CommonSettingStorage.set(SUMMARY_CONFIG_KEY, data.config);
-        xbLog.info(MODULE_ID, "面板配置已保存到服务器");
-      }
-      break;
-
-    case "UPDATE_START_FLOOR": {
-      const store = getSummaryStore();
-      if (!store) break;
-      const { chat } = getContext();
-      const totalLen = Array.isArray(chat) ? chat.length : 0;
-      const targetFloor = Math.max(1, Math.min(totalLen, parseInt(data.floor) || 1));
-      
-      const oldLastSum = store.lastSummarizedMesId ?? -1;
-      
-      // 更新进度和永久档案起点
-      store.lastSummarizedMesId = targetFloor - 2;
-      store.archiveStartMesId = targetFloor - 2; 
-      store.updatedAt = Date.now();
-      saveSummaryStore();
-
-      if (store.hideSummarizedHistory) {
-          if (oldLastSum >= 0) executeSlashCommand(`/unhide 0-${oldLastSum}`);
-          const range = calcHideRange(store.lastSummarizedMesId);
-          if (range) executeSlashCommand(`/hide ${range.start}-${range.end}`);
-      }
-      
-      sendFrameBaseData(store, totalLen);
-      updateSummaryExtensionPrompt();
-      xbLog.info(MODULE_ID, `通过面板手动设置总结起点为：第 ${targetFloor} 楼`);
-      break;
-    }
-
-    case "MG_DELETE_EVENTS": {
-      const store = getSummaryStore();
-      if (!store?.json?.events) break;
-      const { start, end } = data.range || {};
-      if (start === undefined || end === undefined) break;
-      
-      const removed = store.json.events.splice(start, end - start + 1);
-      store.updatedAt = Date.now();
-      saveSummaryStore();
-      
-      const { chat } = getContext();
-      sendFrameFullData(store, Array.isArray(chat) ? chat.length : 0);
-      xbLog.info(MODULE_ID, `已批量删除 ${removed.length} 个事件`);
-      break;
-    }
-
-    case "MG_MERGE_EVENTS": {
-      const store = getSummaryStore();
-      if (!store?.json?.events) break;
-      const { start, end } = data.range || {};
-      if (start === undefined || end === undefined) break;
-
-      const eventsToMerge = store.json.events.slice(start, end + 1);
-      const eventsText = eventsToMerge.map((e, idx) => `[${idx + 1}] 时刻:${e.timeLabel} 标题:${e.title} 内容:${e.summary}`).join("\n");
-      
-      const mergeSystemPrompt = `你也一个资深作家，现在需要你将一段剧情时间线（多个零碎的事件）进行“史诗级”的合并。
-你的目标是：将这些零碎的、日常的事件，精炼成1个具有概括性的、能体现这段剧情“大势”的总结性事件。
-
-### 注意：
-1. 保持时间顺序，概括这段时间的整体变化。
-2. 继承最后一个事件的时间标号（timeLabel）。
-3. 必须输出 JSON (格式如下)：
-{
-  "timeLabel": "原最后一个事件的时间",
-  "title": "概括性的史诗标题",
-  "summary": "精炼后的合并剧情描述"
-}
-4. 严禁复读原文，要进行深度的意会和概括。
-5. 字数限制：总结内容（summary）应保持在 100 字以内，字数规模应与单条普通事件记录保持一致。`;
-
-      setSummaryGenerating(true);
-      postToFrame({ type: "SUMMARY_STATUS", statusText: "正在合并旧事件..." });
-
-      (async () => {
-        try {
-          const cfg = data.config || {};
-          const resultText = await window.xiaobaixStreamingGeneration.runIncremental(
-            mergeSystemPrompt,
-            `请合并以下事件：\n${eventsText}`,
-            SUMMARY_SESSION_ID,
-            cfg.api,
-            cfg.gen,
-            null 
-          );
-
-          if (!resultText) {
-            throw new Error("AI 返回内容为空，请检查模型配置或 API 余额");
-          }
-
-          const match = resultText.match(/\{[\s\S]*\}/);
-          if (match) {
-            try {
-              const mergedEvent = JSON.parse(match[0]);
-              mergedEvent.id = `evt-merged-${Date.now()}`;
-              mergedEvent._addedAt = eventsToMerge[eventsToMerge.length - 1]._addedAt;
-              
-              store.json.events.splice(start, end - start + 1, mergedEvent);
-              store.updatedAt = Date.now();
-              saveSummaryStore();
-              
-              const { chat } = getContext();
-              sendFrameFullData(store, Array.isArray(chat) ? chat.length : 0);
-              xbLog.info(MODULE_ID, "批量合并事件成功");
-            } catch (jsonErr) {
-              throw new Error(`解析 AI 返回的 JSON 失败：${jsonErr.message}\n内容预览：${resultText.slice(0, 50)}...`);
-            }
-          } else {
-             throw new Error("AI 返回的内容中没有找到有效的 JSON 结构。");
-          }
-        } catch (e) {
-          xbLog.error(MODULE_ID, "合并事件失败", e);
-          postToFrame({ type: "SUMMARY_ERROR", message: `合并失败：${e.message}` });
-        } finally {
-          setSummaryGenerating(false);
-          postToFrame({ type: "SUMMARY_STATUS", statusText: null });
-        }
-      })();
-      break;
-    }
-
-    case "REQUEST_PANEL_CONFIG":
-      sendSavedConfigToFrame();
-      break;
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Overlay 面板
-// ═══════════════════════════════════════════════════════════════════════════
-
-function createOverlay() {
-  if (overlayCreated) return;
-  overlayCreated = true;
-
-  const isMobile =
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(
-      navigator.userAgent,
-    );
-  const isNarrow = window.matchMedia?.("(max-width: 768px)").matches;
-  const overlayHeight = isMobile || isNarrow ? "92.5vh" : "100vh";
-
-  const $overlay = $(`
-        <div id="xiaobaix-story-summary-overlay" style="
-            position: fixed !important; inset: 0 !important;
-            width: 100vw !important; height: ${overlayHeight} !important;
-            z-index: 99999 !important; display: none; overflow: hidden !important;
-        ">
-            <div class="xb-ss-backdrop" style="
-                position: absolute !important; inset: 0 !important;
-                background: rgba(0,0,0,.55) !important;
-                backdrop-filter: blur(4px) !important;
-            "></div>
-            <div class="xb-ss-frame-wrap" style="
-                position: absolute !important; inset: 12px !important; z-index: 1 !important;
-            ">
-                <iframe id="xiaobaix-story-summary-iframe" class="xiaobaix-iframe"
-                    src="${iframePath}"
-                    style="width:100% !important; height:100% !important; border:none !important;
-                           border-radius:12px !important; box-shadow:0 0 30px rgba(0,0,0,.4) !important;
-                           background:#fafafa !important;">
-                </iframe>
-            </div>
-            <button class="xb-ss-close-btn" style="
-                position: absolute !important; top: 20px !important; right: 20px !important;
-                z-index: 2 !important; width: 36px !important; height: 36px !important;
-                border-radius: 50% !important; border: none !important;
-                background: rgba(0,0,0,.6) !important; color: #fff !important;
-                font-size: 20px !important; cursor: pointer !important;
-                display: flex !important; align-items: center !important;
-                justify-content: center !important;
-            ">✕</button>
-        </div>
-    `);
-
-  $overlay.on("click", ".xb-ss-backdrop, .xb-ss-close-btn", hideOverlay);
-  document.body.appendChild($overlay[0]);
-  // eslint-disable-next-line no-restricted-syntax
-  window.addEventListener("message", handleFrameMessage);
-}
-
-function showOverlay() {
-  if (!overlayCreated) createOverlay();
-  $("#xiaobaix-story-summary-overlay").show();
-}
-
-function hideOverlay() {
-  $("#xiaobaix-story-summary-overlay").hide();
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 楼层按钮
-// ═══════════════════════════════════════════════════════════════════════════
-
-function createSummaryBtn(mesId) {
-  const btn = document.createElement("div");
-  btn.className = "mes_btn xiaobaix-story-summary-btn";
-  btn.title = "剧情总结";
-  btn.dataset.mesid = mesId;
-  btn.innerHTML = '<i class="fa-solid fa-chart-line"></i>';
-  btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!getSettings().storySummary?.enabled) return;
-    currentMesId = Number(mesId);
-    openPanelForMessage(currentMesId);
-  });
-  return btn;
-}
-
-
-function addSummaryBtnToMessage(mesId) {
-  if (!getSettings().storySummary?.enabled) return;
-  const msg = document.querySelector(`#chat .mes[mesid="${mesId}"]`);
-  if (!msg || msg.querySelector(".xiaobaix-story-summary-btn")) return;
-
-  const sumBtn = createSummaryBtn(mesId);
-
-  if (window.registerButtonToSubContainer?.(mesId, sumBtn)) return;
-
-  const container = msg.querySelector(".flex-container.flex1.alignitemscenter");
-  if (container) {
-    container.appendChild(sumBtn);
-  }
-}
-
-function initButtonsForAll() {
-  if (!getSettings().storySummary?.enabled) return;
-  $("#chat .mes").each((_, el) => {
-    const mesId = el.getAttribute("mesid");
-    if (mesId != null) addSummaryBtnToMessage(mesId);
-  });
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 打开面板与数据发送
-// ═══════════════════════════════════════════════════════════════════════════
-
-async function sendSavedConfigToFrame() {
-  try {
-    const savedConfig = await CommonSettingStorage.get(
-      SUMMARY_CONFIG_KEY,
-      null,
-    );
-    if (savedConfig) {
-      postToFrame({ type: "LOAD_PANEL_CONFIG", config: savedConfig });
-      xbLog.info(MODULE_ID, "已从服务器加载面板配置");
-    }
-  } catch (e) {
-    xbLog.warn(MODULE_ID, "加载面板配置失败", e);
-  }
-}
-
 function sendFrameBaseData(store, totalFloors) {
   const lastSummarized = store?.lastSummarizedMesId ?? -1;
-  const range = calcHideRange(lastSummarized);
+  const range = storeService.calcHideRange(lastSummarized);
   const hiddenCount = range ? range.end + 1 : 0;
 
-  postToFrame({
+  uiBridge.postToFrame({
     type: "SUMMARY_BASE_DATA",
     stats: {
       totalFloors,
@@ -826,7 +107,7 @@ function sendFrameBaseData(store, totalFloors) {
 function sendFrameFullData(store, totalFloors) {
   const lastSummarized = store?.lastSummarizedMesId ?? -1;
   if (store?.json) {
-    postToFrame({
+    uiBridge.postToFrame({
       type: "SUMMARY_FULL_DATA",
       payload: {
         keywords: store.json.keywords || [],
@@ -837,15 +118,15 @@ function sendFrameFullData(store, totalFloors) {
       },
     });
   } else {
-    postToFrame({ type: "SUMMARY_CLEARED", payload: { totalFloors } });
+    uiBridge.postToFrame({ type: "SUMMARY_CLEARED", payload: { totalFloors } });
   }
 }
 
 function openPanelForMessage(mesId) {
-  createOverlay();
-  showOverlay();
+  uiBridge.createOverlay();
+  uiBridge.showOverlay();
   const { chat } = getContext();
-  const store = getSummaryStore();
+  const store = storeService.getSummaryStore();
   const totalFloors = chat.length;
   sendFrameBaseData(store, totalFloors);
   sendFrameFullData(store, totalFloors);
@@ -853,7 +134,7 @@ function openPanelForMessage(mesId) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 增量总结生成
+// 业务逻辑：增量切片构建
 // ═══════════════════════════════════════════════════════════════════════════
 
 function buildIncrementalSlice(
@@ -924,9 +205,13 @@ function getSummaryPanelConfig() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 业务逻辑：执行生成
+// ═══════════════════════════════════════════════════════════════════════════
+
 async function runSummaryGeneration(mesId, configFromFrame) {
   if (isSummaryGenerating()) {
-    postToFrame({
+    uiBridge.postToFrame({
       type: "SUMMARY_STATUS",
       statusText: "上一轮总结仍在进行中...",
     });
@@ -937,24 +222,24 @@ async function runSummaryGeneration(mesId, configFromFrame) {
   xbLog.info(MODULE_ID, `开始总结 mesId=${mesId}`);
 
   const cfg = configFromFrame || {};
-  const store = getSummaryStore();
+  const store = storeService.getSummaryStore();
   const lastSummarized = store?.lastSummarizedMesId ?? -1;
   const maxPerRun = cfg.trigger?.maxPerRun || 100;
   const slice = buildIncrementalSlice(mesId, lastSummarized, maxPerRun);
 
   if (slice.count === 0) {
-    postToFrame({ type: "SUMMARY_STATUS", statusText: "没有新的对话需要总结" });
+    uiBridge.postToFrame({ type: "SUMMARY_STATUS", statusText: "没有新的对话需要总结" });
     setSummaryGenerating(false);
     return true;
   }
 
-  postToFrame({
+  uiBridge.postToFrame({
     type: "SUMMARY_STATUS",
     statusText: `正在总结 ${slice.range}（${slice.count}楼新内容）...`,
   });
 
-  const existingSummary = formatExistingSummaryForAI(store);
-  const nextEventId = getNextEventId(store);
+  const existingSummary = storeService.formatExistingSummaryForAI(store);
+  const nextEventId = storeService.getNextEventId(store);
   const existingEventCount = store?.json?.events?.length || 0;
   const useStream = cfg.trigger?.useStream !== false;
   const apiCfg = cfg.api || {};
@@ -981,14 +266,14 @@ async function runSummaryGeneration(mesId, configFromFrame) {
     });
   } catch (err) {
     xbLog.error(MODULE_ID, "生成失败", err);
-    postToFrame({ type: "SUMMARY_ERROR", message: err?.message || "生成失败" });
+    uiBridge.postToFrame({ type: "SUMMARY_ERROR", message: err?.message || "生成失败" });
     setSummaryGenerating(false);
     return false;
   }
 
   if (!raw?.trim()) {
     xbLog.error(MODULE_ID, "AI返回为空");
-    postToFrame({ type: "SUMMARY_ERROR", message: "AI返回为空" });
+    uiBridge.postToFrame({ type: "SUMMARY_ERROR", message: "AI返回为空" });
     setSummaryGenerating(false);
     return false;
   }
@@ -996,21 +281,21 @@ async function runSummaryGeneration(mesId, configFromFrame) {
   const parsed = parseSummaryJson(raw);
   if (!parsed) {
     xbLog.error(MODULE_ID, "JSON解析失败");
-    postToFrame({ type: "SUMMARY_ERROR", message: "AI未返回有效JSON" });
+    uiBridge.postToFrame({ type: "SUMMARY_ERROR", message: "AI未返回有效JSON" });
     setSummaryGenerating(false);
     return false;
   }
 
   const oldJson = store?.json || {};
-  const merged = mergeNewData(oldJson, parsed, slice.endMesId);
+  const merged = storeService.mergeNewData(oldJson, parsed, slice.endMesId);
 
   store.lastSummarizedMesId = slice.endMesId;
   store.json = merged;
   store.updatedAt = Date.now();
-  addSummarySnapshot(store, slice.endMesId);
-  saveSummaryStore();
+  storeService.addSummarySnapshot(store, slice.endMesId);
+  storeService.saveSummaryStore();
 
-  postToFrame({
+  uiBridge.postToFrame({
     type: "SUMMARY_FULL_DATA",
     payload: {
       keywords: merged.keywords || [],
@@ -1021,18 +306,18 @@ async function runSummaryGeneration(mesId, configFromFrame) {
     },
   });
 
-  postToFrame({
+  uiBridge.postToFrame({
     type: "SUMMARY_STATUS",
     statusText: `已更新至 ${slice.endMesId + 1} 楼 · ${merged.events?.length || 0} 个事件`,
   });
 
   const { chat } = getContext();
   const totalFloors = Array.isArray(chat) ? chat.length : 0;
-  const newHideRange = calcHideRange(slice.endMesId);
+  const newHideRange = storeService.calcHideRange(slice.endMesId);
   let actualHiddenCount = 0;
 
   if (store.hideSummarizedHistory && newHideRange) {
-    const oldHideRange = calcHideRange(lastSummarized);
+    const oldHideRange = storeService.calcHideRange(lastSummarized);
     const newHideStart = oldHideRange ? oldHideRange.end + 1 : 0;
     if (newHideStart <= newHideRange.end) {
       executeSlashCommand(`/hide ${newHideStart}-${newHideRange.end}`);
@@ -1040,7 +325,7 @@ async function runSummaryGeneration(mesId, configFromFrame) {
     actualHiddenCount = newHideRange.end + 1;
   }
 
-  postToFrame({
+  uiBridge.postToFrame({
     type: "SUMMARY_BASE_DATA",
     stats: {
       totalFloors,
@@ -1062,7 +347,7 @@ async function runSummaryGeneration(mesId, configFromFrame) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 自动触发总结
+// 业务逻辑：自动运行
 // ═══════════════════════════════════════════════════════════════════════════
 
 async function maybeAutoRunSummary(reason) {
@@ -1080,7 +365,7 @@ async function maybeAutoRunSummary(reason) {
 
   if (isSummaryGenerating()) return;
 
-  const store = getSummaryStore();
+  const store = storeService.getSummaryStore();
   const lastSummarized = store?.lastSummarizedMesId ?? -1;
   const pending = chat.length - lastSummarized - 1;
   if (pending < (trig.interval || 1)) return;
@@ -1108,7 +393,7 @@ async function autoRunSummaryWithRetry(targetMesId, configForRun) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// extension_prompts 注入
+// 业务逻辑：回滚与Prompt更新
 // ═══════════════════════════════════════════════════════════════════════════
 
 function formatSummaryForPrompt(store) {
@@ -1150,7 +435,7 @@ function updateSummaryExtensionPrompt() {
   }
 
   const { chat } = getContext();
-  const store = getSummaryStore();
+  const store = storeService.getSummaryStore();
 
   if (!store?.json) {
     delete extension_prompts[SUMMARY_PROMPT_KEY];
@@ -1196,8 +481,450 @@ function clearSummaryExtensionPrompt() {
   delete extension_prompts[SUMMARY_PROMPT_KEY];
 }
 
+function rollbackSummaryIfNeeded() {
+  const { chat } = getContext();
+  const currentLength = Array.isArray(chat) ? chat.length : 0;
+  const store = storeService.getSummaryStore();
+
+  if (
+    !store ||
+    store.lastSummarizedMesId == null ||
+    store.lastSummarizedMesId < 0
+  ) {
+    return false;
+  }
+
+  const lastSummarized = store.lastSummarizedMesId;
+
+  if (currentLength <= lastSummarized) {
+    const deletedCount = lastSummarized + 1 - currentLength;
+
+    if (deletedCount < 2) {
+      return false;
+    }
+
+    xbLog.warn(
+      MODULE_ID,
+      `删除已总结楼层 ${deletedCount} 条，当前${currentLength}，原总结到${lastSummarized + 1}，触发回滚`,
+    );
+
+    const history = store.summaryHistory || [];
+    let targetEndMesId = -1;
+
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].endMesId < currentLength) {
+        targetEndMesId = history[i].endMesId;
+        break;
+      }
+    }
+
+    executeFilterRollback(store, targetEndMesId, currentLength);
+    return true;
+  }
+
+  return false;
+}
+
+function executeFilterRollback(store, targetEndMesId, currentLength) {
+  const oldLastSummarized = store.lastSummarizedMesId ?? -1;
+  const wasHidden = store.hideSummarizedHistory;
+  const oldHideRange = wasHidden ? storeService.calcHideRange(oldLastSummarized) : null;
+
+  if (targetEndMesId < 0) {
+    store.lastSummarizedMesId = -1;
+    store.json = null;
+    store.summaryHistory = [];
+    store.hideSummarizedHistory = false;
+  } else {
+    const json = store.json || {};
+
+    // 过滤逻辑
+    json.events = (json.events || []).filter(
+      (e) => (e._addedAt ?? 0) <= targetEndMesId,
+    );
+    json.keywords = (json.keywords || []).filter(
+      (k) => (k._addedAt ?? 0) <= targetEndMesId,
+    );
+    json.arcs = (json.arcs || []).filter(
+      (a) => (a._addedAt ?? 0) <= targetEndMesId,
+    );
+    json.arcs.forEach((a) => {
+      a.moments = (a.moments || []).filter(
+        (m) => typeof m === "string" || (m._addedAt ?? 0) <= targetEndMesId,
+      );
+    });
+
+    if (json.characters) {
+      json.characters.main = (json.characters.main || []).filter(
+        (m) => typeof m === "string" || (m._addedAt ?? 0) <= targetEndMesId,
+      );
+      json.characters.relationships = (
+        json.characters.relationships || []
+      ).filter((r) => (r._addedAt ?? 0) <= targetEndMesId);
+    }
+
+    store.json = json;
+    store.lastSummarizedMesId = targetEndMesId;
+    store.summaryHistory = (store.summaryHistory || []).filter(
+      (h) => h.endMesId <= targetEndMesId,
+    );
+  }
+
+  // 恢复隐藏/取消隐藏副作用
+  if (oldHideRange && oldHideRange.end >= 0) {
+    const newHideRange =
+      targetEndMesId >= 0 && store.hideSummarizedHistory
+        ? storeService.calcHideRange(targetEndMesId)
+        : null;
+
+    const unhideStart = newHideRange
+      ? Math.min(newHideRange.end + 1, currentLength)
+      : 0;
+    const unhideEnd = Math.min(oldHideRange.end, currentLength - 1);
+
+    if (unhideStart <= unhideEnd) {
+      executeSlashCommand(`/unhide ${unhideStart}-${unhideEnd}`);
+    }
+  }
+
+  store.updatedAt = Date.now();
+  storeService.saveSummaryStore();
+  updateSummaryExtensionPrompt();
+  
+  // Notify Frame
+  const { chat } = getContext();
+  const totalFloors = Array.isArray(chat) ? chat.length : 0;
+  if (store.json) {
+    sendFrameFullData(store, totalFloors);
+  } else {
+    uiBridge.postToFrame({ type: "SUMMARY_CLEARED", payload: { totalFloors } });
+  }
+  sendFrameBaseData(store, totalFloors);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-// 事件处理器
+// UI 事件处理
+// ═══════════════════════════════════════════════════════════════════════════
+
+async function sendSavedConfigToFrame() {
+  try {
+    const savedConfig = await CommonSettingStorage.get(
+      SUMMARY_CONFIG_KEY,
+      null,
+    );
+    if (savedConfig) {
+      uiBridge.postToFrame({ type: "LOAD_PANEL_CONFIG", config: savedConfig });
+      xbLog.info(MODULE_ID, "已从服务器加载面板配置");
+    }
+  } catch (e) {
+    xbLog.warn(MODULE_ID, "加载面板配置失败", e);
+  }
+}
+
+function handleFrameControllerMessage(data) {
+  // 注意：origin 检查已在 uiBridge 中完成
+
+  switch (data.type) {
+    case "FRAME_READY":
+      uiBridge.setFrameReady(true);
+      setSummaryGenerating(summaryGenerating);
+      sendSavedConfigToFrame();
+      break;
+
+    case "SETTINGS_OPENED":
+    case "FULLSCREEN_OPENED":
+    case "EDITOR_OPENED":
+      $(".xb-ss-close-btn").hide();
+      break;
+
+    case "SETTINGS_CLOSED":
+    case "FULLSCREEN_CLOSED":
+    case "EDITOR_CLOSED":
+      $(".xb-ss-close-btn").show();
+      break;
+
+    case "REQUEST_GENERATE": {
+      const ctx = getContext();
+      currentMesId = (ctx.chat?.length ?? 1) - 1;
+      runSummaryGeneration(currentMesId, data.config || {});
+      break;
+    }
+
+    case "REQUEST_CANCEL":
+      window.xiaobaixStreamingGeneration?.cancel?.(SUMMARY_SESSION_ID);
+      setSummaryGenerating(false);
+      uiBridge.postToFrame({ type: "SUMMARY_STATUS", statusText: "已停止" });
+      break;
+
+    case "REQUEST_CLEAR": {
+      const { chat } = getContext();
+      const store = storeService.getSummaryStore();
+      if (store) {
+        delete store.json;
+        store.lastSummarizedMesId = -1;
+        store.updatedAt = Date.now();
+        storeService.saveSummaryStore();
+      }
+      clearSummaryExtensionPrompt();
+      uiBridge.postToFrame({
+        type: "SUMMARY_CLEARED",
+        payload: { totalFloors: Array.isArray(chat) ? chat.length : 0 },
+      });
+      xbLog.info(MODULE_ID, "总结数据已清空");
+      break;
+    }
+
+    case "CLOSE_PANEL":
+      uiBridge.hideOverlay();
+      break;
+
+    case "UPDATE_SECTION": {
+      const store = storeService.getSummaryStore();
+      if (!store) break;
+      store.json ||= {};
+      if (VALID_SECTIONS.includes(data.section)) {
+        store.json[data.section] = data.data;
+      }
+      store.updatedAt = Date.now();
+      storeService.saveSummaryStore();
+      updateSummaryExtensionPrompt();
+      break;
+    }
+
+    case "TOGGLE_HIDE_SUMMARIZED": {
+      const store = storeService.getSummaryStore();
+      if (!store) break;
+      const lastSummarized = store.lastSummarizedMesId ?? -1;
+      if (lastSummarized < 0) break;
+      store.hideSummarizedHistory = !!data.enabled;
+      storeService.saveSummaryStore();
+      if (data.enabled) {
+        const range = storeService.calcHideRange(lastSummarized);
+        if (range) executeSlashCommand(`/hide ${range.start}-${range.end}`);
+      } else {
+        executeSlashCommand(`/unhide 0-${lastSummarized}`);
+      }
+      break;
+    }
+
+    case "UPDATE_KEEP_VISIBLE": {
+      const store = storeService.getSummaryStore();
+      if (!store) break;
+
+      const oldCount = store.keepVisibleCount ?? 3;
+      const newCount = Math.max(0, Math.min(50, parseInt(data.count) || 3));
+
+      if (newCount === oldCount) break;
+
+      store.keepVisibleCount = newCount;
+      storeService.saveSummaryStore();
+
+      const lastSummarized = store.lastSummarizedMesId ?? -1;
+
+      if (store.hideSummarizedHistory && lastSummarized >= 0) {
+        (async () => {
+          await executeSlashCommand(`/unhide 0-${lastSummarized}`);
+          const range = storeService.calcHideRange(lastSummarized);
+          if (range) {
+            await executeSlashCommand(`/hide ${range.start}-${range.end}`);
+          }
+          const { chat } = getContext();
+          sendFrameBaseData(store, Array.isArray(chat) ? chat.length : 0);
+        })();
+      } else {
+        const { chat } = getContext();
+        sendFrameBaseData(store, Array.isArray(chat) ? chat.length : 0);
+      }
+      break;
+    }
+
+    case "SAVE_PANEL_CONFIG":
+      if (data.config) {
+        CommonSettingStorage.set(SUMMARY_CONFIG_KEY, data.config);
+        xbLog.info(MODULE_ID, "面板配置已保存到服务器");
+      }
+      break;
+
+    case "UPDATE_START_FLOOR": {
+      const store = storeService.getSummaryStore();
+      if (!store) break;
+      const { chat } = getContext();
+      const totalLen = Array.isArray(chat) ? chat.length : 0;
+      const targetFloor = Math.max(1, Math.min(totalLen, parseInt(data.floor) || 1));
+      
+      const oldLastSum = store.lastSummarizedMesId ?? -1;
+      
+      store.lastSummarizedMesId = targetFloor - 2;
+      store.archiveStartMesId = targetFloor - 2; 
+      store.updatedAt = Date.now();
+      storeService.saveSummaryStore();
+
+      if (store.hideSummarizedHistory) {
+          if (oldLastSum >= 0) executeSlashCommand(`/unhide 0-${oldLastSum}`);
+          const range = storeService.calcHideRange(store.lastSummarizedMesId);
+          if (range) executeSlashCommand(`/hide ${range.start}-${range.end}`);
+      }
+      
+      sendFrameBaseData(store, totalLen);
+      updateSummaryExtensionPrompt();
+      xbLog.info(MODULE_ID, `通过面板手动设置总结起点为：第 ${targetFloor} 楼`);
+      break;
+    }
+
+    case "MG_DELETE_EVENTS": {
+      const store = storeService.getSummaryStore();
+      if (!store?.json?.events) break;
+      const { start, end } = data.range || {};
+      if (start === undefined || end === undefined) break;
+      
+      const removed = store.json.events.splice(start, end - start + 1);
+      store.updatedAt = Date.now();
+      storeService.saveSummaryStore();
+      
+      const { chat } = getContext();
+      sendFrameFullData(store, Array.isArray(chat) ? chat.length : 0);
+      xbLog.info(MODULE_ID, `已批量删除 ${removed.length} 个事件`);
+      break;
+    }
+
+    case "MG_MERGE_EVENTS": {
+      const store = storeService.getSummaryStore();
+      if (!store?.json?.events) break;
+      const { start, end } = data.range || {};
+      if (start === undefined || end === undefined) break;
+
+      const eventsToMerge = store.json.events.slice(start, end + 1);
+      const eventsText = eventsToMerge.map((e, idx) => `[${idx + 1}] 时刻:${e.timeLabel} 标题:${e.title} 内容:${e.summary}`).join("\n");
+      
+      const mergeSystemPrompt = `你也一个资深作家，现在需要你将一段剧情时间线（多个零碎的事件）进行“史诗级”的合并。
+你的目标是：将这些零碎的、日常的事件，精炼成1个具有概括性的、能体现这段剧情“大势”的总结性事件。
+
+### 注意：
+1. 保持时间顺序，概括这段时间的整体变化。
+2. 继承最后一个事件的时间标号（timeLabel）。
+3. 必须输出 JSON (格式如下)：
+{
+  "timeLabel": "原最后一个事件的时间",
+  "title": "概括性的史诗标题",
+  "summary": "精炼后的合并剧情描述"
+}
+4. 严禁复读原文，要进行深度的意会和概括。
+5. 字数限制：总结内容（summary）应保持在 100 字以内，字数规模应与单条普通事件记录保持一致。`;
+
+      setSummaryGenerating(true);
+      uiBridge.postToFrame({ type: "SUMMARY_STATUS", statusText: "正在调用 AI 进行史诗级合并..." });
+
+      (async () => {
+        try {
+          const cfg = data.config || {};
+          console.log("[Merge DEBUG] 正在启动 runIncremental...", { api: cfg.api, sessionId: SUMMARY_SESSION_ID });
+
+          if (!window.xiaobaixStreamingGeneration) {
+            throw new Error("找不到生成引擎 xiaobaixStreamingGeneration，请确保主插件已加载。");
+          }
+
+          const resultText = await window.xiaobaixStreamingGeneration.runIncremental(
+            mergeSystemPrompt,
+            `请合并以下事件：\n${eventsText}`,
+            SUMMARY_SESSION_ID,
+            cfg.api,
+            cfg.gen,
+            null
+          );
+
+          console.log("[Merge DEBUG] AI 返回原始文本:", resultText);
+
+          if (!resultText) {
+            throw new Error("AI 返回内容为空，请检查模型配置或 API 余额。");
+          }
+
+          const match = resultText.match(/\{[\s\S]*\}/);
+          if (match) {
+            try {
+              const mergedEvent = JSON.parse(match[0]);
+              mergedEvent.id = `evt-merged-${Date.now()}`;
+              mergedEvent._addedAt = eventsToMerge[eventsToMerge.length - 1]._addedAt;
+              
+              store.json.events.splice(start, end - start + 1, mergedEvent);
+              store.updatedAt = Date.now();
+              storeService.saveSummaryStore();
+              
+              const { chat } = getContext();
+              sendFrameFullData(store, Array.isArray(chat) ? chat.length : 0);
+              xbLog.info(MODULE_ID, "批量合并事件成功");
+            } catch (jsonErr) {
+              console.error("[Merge DEBUG] JSON 解析失败", jsonErr);
+              throw new Error(`JSON 解析失败：${jsonErr.message}`);
+            }
+          } else {
+            console.error("[Merge DEBUG] 未匹配到 JSON 结构");
+            throw new Error("AI 返回的内容中没有找到有效的 JSON 结构。");
+          }
+        } catch (e) {
+          console.error("[Merge DEBUG] 异步流程崩溃", e);
+          xbLog.error(MODULE_ID, "合并事件过程崩溃", e);
+          uiBridge.postToFrame({ type: "SUMMARY_ERROR", message: `合并失败：${e.message}` });
+        } finally {
+          setSummaryGenerating(false);
+          uiBridge.postToFrame({ type: "SUMMARY_STATUS", statusText: null });
+        }
+      })();
+      break;
+    }
+
+    case "REQUEST_PANEL_CONFIG":
+      sendSavedConfigToFrame();
+      break;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 楼层按钮
+// ═══════════════════════════════════════════════════════════════════════════
+
+function createSummaryBtn(mesId) {
+  const btn = document.createElement("div");
+  btn.className = "mes_btn xiaobaix-story-summary-btn";
+  btn.title = "剧情总结";
+  btn.dataset.mesid = mesId;
+  btn.innerHTML = '<i class="fa-solid fa-chart-line"></i>';
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!getSettings().storySummary?.enabled) return;
+    currentMesId = Number(mesId);
+    openPanelForMessage(currentMesId);
+  });
+  return btn;
+}
+
+
+function addSummaryBtnToMessage(mesId) {
+  if (!getSettings().storySummary?.enabled) return;
+  const msg = document.querySelector(`#chat .mes[mesid="${mesId}"]`);
+  if (!msg || msg.querySelector(".xiaobaix-story-summary-btn")) return;
+
+  const sumBtn = createSummaryBtn(mesId);
+
+  if (window.registerButtonToSubContainer?.(mesId, sumBtn)) return;
+
+  const container = msg.querySelector(".flex-container.flex1.alignitemscenter");
+  if (container) {
+    container.appendChild(sumBtn);
+  }
+}
+
+function initButtonsForAll() {
+  if (!getSettings().storySummary?.enabled) return;
+  $("#chat .mes").each((_, el) => {
+    const mesId = el.getAttribute("mesid");
+    if (mesId != null) addSummaryBtnToMessage(mesId);
+  });
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 事件注册
 // ═══════════════════════════════════════════════════════════════════════════
 
 function handleChatChanged() {
@@ -1208,15 +935,15 @@ function handleChatChanged() {
   initButtonsForAll();
   updateSummaryExtensionPrompt();
 
-  const store = getSummaryStore();
+  const store = storeService.getSummaryStore();
   const lastSummarized = store?.lastSummarizedMesId ?? -1;
 
   if (lastSummarized >= 0 && store?.hideSummarizedHistory === true) {
-    const range = calcHideRange(lastSummarized);
+    const range = storeService.calcHideRange(lastSummarized);
     if (range) executeSlashCommand(`/hide ${range.start}-${range.end}`);
   }
 
-  if (frameReady) {
+  if (uiBridge.isFrameReady()) {
     sendFrameBaseData(store, newLength);
     sendFrameFullData(store, newLength);
   }
@@ -1255,7 +982,7 @@ function handleMessageRendered(data) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 事件注册
+// 初始化
 // ═══════════════════════════════════════════════════════════════════════════
 
 function registerEvents() {
@@ -1264,21 +991,8 @@ function registerEvents() {
 
   xbLog.info(MODULE_ID, "模块初始化");
 
-  CacheRegistry.register(MODULE_ID, {
-    name: "待发送消息队列",
-    getSize: () => pendingFrameMessages.length,
-    getBytes: () => {
-      try {
-        return JSON.stringify(pendingFrameMessages || []).length * 2;
-      } catch {
-        return 0;
-      }
-    },
-    clear: () => {
-      pendingFrameMessages = [];
-      frameReady = false;
-    },
-  });
+  // 将处理器注册给 UI 桥接
+  uiBridge.setMessageHandler(handleFrameControllerMessage);
 
   initButtonsForAll();
 
@@ -1313,13 +1027,9 @@ function unregisterEvents() {
   CacheRegistry.unregister(MODULE_ID);
   eventsRegistered = false;
   $(".xiaobaix-story-summary-btn").remove();
-  hideOverlay();
+  uiBridge.hideOverlay();
   clearSummaryExtensionPrompt();
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Toggle 监听
-// ═══════════════════════════════════════════════════════════════════════════
 
 $(document).on("xiaobaix:storySummary:toggle", (_e, enabled) => {
   if (enabled) {
@@ -1330,10 +1040,6 @@ $(document).on("xiaobaix:storySummary:toggle", (_e, enabled) => {
     unregisterEvents();
   }
 });
-
-// ═══════════════════════════════════════════════════════════════════════════
-// 初始化
-// ═══════════════════════════════════════════════════════════════════════════
 
 jQuery(() => {
   if (!getSettings().storySummary?.enabled) {
