@@ -209,7 +209,7 @@ async function handleUICommand(data) {
       break;
 
     case "REQUEST_PRUNE_FIELDS":
-      const res = await mgtService.pruneFieldsFromChat(data.pattern);
+      const res = await mgtService.pruneFieldsFromChat(data.pattern, data.keepRecentCount);
       uiBridge.postToFrame({ type: "PRUNE_RESULT", ...res });
       break;
 

@@ -1645,9 +1645,13 @@
                     <div class="settings-section-title">冗余字段清理 (Pruner)</div>
                     <div class="settings-hint">此工具将遍历当前聊天记录的所有消息，删除匹配指定字符的字段。例如输入 <strong>TavernDB</strong> 将删除所有包含该字符的 JSON 键。</div>
                     <div class="settings-row" style="margin-top: 16px;">
-                        <div class="settings-field full">
+                        <div class="settings-field">
                             <label>模糊匹配关键词</label>
                             <input type="text" id="prune-pattern" placeholder="例如：TavernDB" value="TavernDB">
+                        </div>
+                        <div class="settings-field">
+                            <label>保留最近 N 条 (不处理)</label>
+                            <input type="number" id="prune-keep-count" placeholder="0" value="0" min="0">
                         </div>
                     </div>
                 </div>
@@ -1775,9 +1779,10 @@
         function closeManager() { $('manager-modal').classList.remove('active'); postMsg('MANAGER_CLOSED'); }
         function executePrune() {
             const pattern = $('prune-pattern').value.trim();
+            const keepCount = parseInt($('prune-keep-count').value) || 0;
             if (!pattern) return alert('请输入匹配关键词');
-            if (confirm(`确定要清理所有包含 "${pattern}" 字段的消息数据吗？\n警告：此操作不可撤销，请确保已备份存档！`)) {
-                postMsg('REQUEST_PRUNE_FIELDS', { pattern });
+            if (confirm(`确定要清理所有包含 "${pattern}" 字段的消息数据吗？（最近 ${keepCount} 条将被忽略）\n警告：此操作不可撤销，请确保已备份存档！`)) {
+                postMsg('REQUEST_PRUNE_FIELDS', { pattern, keepRecentCount: keepCount });
             }
         }
 

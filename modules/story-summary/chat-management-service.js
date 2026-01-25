@@ -7,9 +7,10 @@ const MODULE_ID = "storySummary";
 /**
  * 遍历所有聊天记录，并删除匹配模糊模式的字段
  * @param {string} pattern 模糊匹配模式 (如 "TavernDB")
+ * @param {number} keepRecentCount 保留最近多少条不处理 (默认 0)
  * @returns {Promise<{affectedMessages: number, deletedFields: number}>}
  */
-export async function pruneFieldsFromChat(pattern) {
+export async function pruneFieldsFromChat(pattern, keepRecentCount = 0) {
     const { chat } = getContext();
     if (!Array.isArray(chat)) return { affectedMessages: 0, deletedFields: 0 };
 
@@ -17,8 +18,11 @@ export async function pruneFieldsFromChat(pattern) {
     let deletedFields = 0;
 
     const lowerPattern = pattern.toLowerCase();
+    const processUpTo = chat.length - Math.max(0, keepRecentCount);
 
-    chat.forEach((mes) => {
+    chat.forEach((mes, index) => {
+        if (index >= processUpTo) return; // 跳过最近的消息
+        
         let mesChanged = false;
         
         // 1. 递归扫描对象字段
