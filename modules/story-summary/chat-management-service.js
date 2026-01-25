@@ -11,32 +11,43 @@ const MODULE_ID = "storySummary";
  * @returns {Promise<{affectedMessages: number, deletedFields: number}>}
  */
 export async function pruneFieldsFromChat(pattern, keepRecentCount = 0) {
-    // 尝试多种方式获取完整的聊天记录，防止因正则筛选或显示限制导致只获取到部分楼层
     const context = getContext();
-    const chat = context?.chat || window.chat || (typeof SillyTavern !== 'undefined' ? SillyTavern.getContext()?.chat : null);
+    const lowerPattern = pattern.toLowerCase();
     
+    // 搜寻可能的完整数组源
+    const sources = [
+        { name: 'Global Chat', data: window.chat },
+        { name: 'Context Chat', data: context?.chat },
+        { name: 'Backup Chat', data: window.original_chat },
+        { name: 'Raw Chat', data: window.raw_chat },
+        { name: 'All Messages', data: window.all_messages },
+        { name: 'Character DB', data: window.characters?.[window.this_chid]?.chat }
+    ];
+
+    // 寻找最长的那个数组，作为真实的数据源
+    let bestSource = sources.reduce((prev, curr) => 
+        (Array.isArray(curr.data) && curr.data.length > (Array.isArray(prev.data) ? prev.data.length : -1)) ? curr : prev, 
+        { name: 'None', data: null }
+    );
+
+    const chat = bestSource.data;
     if (!Array.isArray(chat) || chat.length === 0) {
         xbLog.warn(MODULE_ID, "未能获取到有效的聊天记录数组");
         return { affectedMessages: 0, deletedFields: 0 };
     }
 
-    xbLog.info(MODULE_ID, `准备清理元数据：当前检测到 ${chat.length} 条消息`);
+    const totalCount = chat.length;
+    xbLog.info(MODULE_ID, `清理任务发动：使用数据源 [${bestSource.name}]，检测到数组长度为 ${totalCount}`);
 
     let affectedMessages = 0;
     let deletedFields = 0;
-
-    const lowerPattern = pattern.toLowerCase();
-    const processUpTo = chat.length - Math.max(0, keepRecentCount);
+    const processUpTo = totalCount - Math.max(0, keepRecentCount);
 
     chat.forEach((mes, index) => {
-        if (index >= processUpTo) return; // 跳过最近的消息
-        
+        if (index >= processUpTo) return;
         let mesChanged = false;
-        
-        // 1. 递归扫描对象字段
         const scanAndPrune = (obj) => {
             if (!obj || typeof obj !== 'object') return;
-            
             const keys = Object.keys(obj);
             keys.forEach(key => {
                 if (key.toLowerCase().includes(lowerPattern)) {
@@ -48,20 +59,29 @@ export async function pruneFieldsFromChat(pattern, keepRecentCount = 0) {
                 }
             });
         };
-
         scanAndPrune(mes);
-        
-        if (mesChanged) {
-            affectedMessages++;
-        }
+        if (mesChanged) affectedMessages++;
     });
 
     if (affectedMessages > 0) {
-        xbLog.info(MODULE_ID, `清理元数据：匹配周期 "${pattern}"，影响 ${affectedMessages} 条消息，删除 ${deletedFields} 个字段`);
-        getContext().saveChat?.();
+        xbLog.info(MODULE_ID, `清理完成：匹配 "${pattern}"，处理了 ${affectedMessages}/${totalCount} 条消息，删除 ${deletedFields} 个字段`);
+        
+        // 尝试多种路径强制静默保存，不经过 UI 等待
+        setTimeout(() => {
+            try {
+                if (typeof window.saveChat === 'function') {
+                    window.saveChat(true); 
+                } else {
+                    context?.saveChat?.();
+                }
+                xbLog.info(MODULE_ID, "已触发异步静默保存。");
+            } catch (e) {
+                xbLog.error(MODULE_ID, "触发保存失败", e);
+            }
+        }, 100);
     }
 
-    return { affectedMessages, deletedFields };
+    return { affectedMessages, deletedFields, totalCount };
 }
 
 /**
