@@ -1,5 +1,5 @@
 
-import { getContext, saveChatDebounced } from "../../../../../extensions.js";
+import { getContext } from "../../../../../extensions.js";
 import { xbLog } from "../../core/debug-core.js";
 
 const MODULE_ID = "storySummary";
@@ -50,7 +50,7 @@ export async function pruneFieldsFromChat(pattern, keepRecentCount = 0) {
 
     if (affectedMessages > 0) {
         xbLog.info(MODULE_ID, `清理元数据：匹配周期 "${pattern}"，影响 ${affectedMessages} 条消息，删除 ${deletedFields} 个字段`);
-        saveChatDebounced?.();
+        getContext().saveChat?.();
     }
 
     return { affectedMessages, deletedFields };
