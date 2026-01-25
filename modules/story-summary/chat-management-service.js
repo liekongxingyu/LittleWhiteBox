@@ -14,106 +14,100 @@ export async function pruneFieldsFromChat(pattern, keepRecentCount = 0) {
     const context = getContext();
     const lowerPattern = pattern.toLowerCase();
     
-    // --- 雷达模式：在内存中肉眼搜寻那个巨大的数组 ---
-    let chat = null;
-    let sourceName = "None";
-
-    const scanForChatArray = () => {
-        // 优先检查已知的可能路径
-        const knownPaths = [
-            { n: 'window.chat', d: window.chat },
-            { n: 'context.chat', d: context?.chat },
-            { n: 'window.original_chat', d: window.original_chat },
-            { n: 'window.raw_chat', d: window.raw_chat },
-            { n: 'window.all_messages', d: window.all_messages },
-            { n: 'CharacterDB', d: window.characters?.[window.this_chid ?? context?.characterId]?.chat }
-        ];
-
-        for (const path of knownPaths) {
-            if (Array.isArray(path.d) && path.d.length > 100) return { d: path.d, n: path.n };
-        }
-
-        // 如果已知路径都失败了，启动全域扫描 (寻找长度>100且看起来像聊天的数组)
+    // --- 暴力全搜寻：寻找内存中“所有”可能的聊天数组引用 ---
+    const allChatArrays = [];
+    const scanForArrays = (obj, depth = 0) => {
+        if (depth > 2 || !obj) return;
         try {
-            for (const key in window) {
-                const val = window[key];
-                if (Array.isArray(val) && val.length > 100) {
-                    // 检查特征：元素是否包含 mes 或 name 属性
+            for (const key in obj) {
+                const val = obj[key];
+                if (Array.isArray(val) && val.length > 0) {
                     if (val[0] && (typeof val[0].mes !== 'undefined' || typeof val[0].name !== 'undefined')) {
-                        return { d: val, n: `Explored_Global_${key}` };
+                        if (!allChatArrays.includes(val)) allChatArrays.push(val);
                     }
                 }
             }
         } catch (e) {}
-        
-        return { d: window.chat || context?.chat, n: "Fallback" };
     };
 
-    const result = scanForChatArray();
-    chat = result.d;
-    sourceName = result.n;
+    scanForArrays(window);
+    scanForArrays(context);
+    if (window.characters?.[window.this_chid]) scanForArrays(window.characters[window.this_chid]);
 
-    if (!Array.isArray(chat) || chat.length === 0) {
-        xbLog.warn(MODULE_ID, "雷达扫描未能在内存中找到有效的长聊天记录。");
+    if (allChatArrays.length === 0) {
+        xbLog.warn(MODULE_ID, "在内存中未找到任何有效的聊天记录引用。");
         return { affectedMessages: 0, deletedFields: 0 };
     }
 
-    const totalCount = chat.length;
-    xbLog.info(MODULE_ID, `清理任务发动 [源:${sourceName}]：雷达在内存中锁定了 ${totalCount} 条原始对话记录`);
+    // 找出最长的作为主引用，用于统计
+    const mainChat = allChatArrays.reduce((a, b) => (a.length > b.length ? a : b));
+    const totalCount = mainChat.length;
+    xbLog.info(MODULE_ID, `清理任务发动：在内存中锁定了 ${allChatArrays.length} 个数据引用路径，主数组长度 ${totalCount}`);
 
     let affectedMessages = 0;
     let deletedFields = 0;
     const processUpTo = totalCount - Math.max(0, keepRecentCount);
+    const syncToken = Date.now();
 
-    chat.forEach((mes, index) => {
-        if (index >= processUpTo) return;
-        let mesChanged = false;
-        
-        const scanAndPrune = (obj) => {
-            if (!obj || typeof obj !== 'object') return;
-            const keys = Object.keys(obj);
-            keys.forEach(key => {
-                if (key.toLowerCase().includes(lowerPattern)) {
-                    delete obj[key];
-                    deletedFields++;
-                    mesChanged = true;
-                } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-                    scanAndPrune(obj[key]);
-                }
-            });
-        };
+    // 核心：遍历所有发现的消息数组并处理（防止云端因引用副本导致保存了未修改的版本）
+    allChatArrays.forEach(chatArr => {
+        chatArr.forEach((mes, index) => {
+            if (index >= processUpTo) return;
+            let mesChanged = false;
+            
+            const scanAndPrune = (obj) => {
+                if (!obj || typeof obj !== 'object') return;
+                const keys = Object.keys(obj);
+                keys.forEach(key => {
+                    if (key.toLowerCase().includes(lowerPattern)) {
+                        delete obj[key];
+                        deletedFields++;
+                        mesChanged = true;
+                    } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+                        scanAndPrune(obj[key]);
+                    }
+                });
+            };
 
-        scanAndPrune(mes);
-        if (mesChanged) affectedMessages++;
+            scanAndPrune(mes);
+            if (mesChanged) {
+                // 强制注入同步令牌：逼迫酒馆的 Dirty Check 认为该消息已完全改变
+                mes.force_sync = syncToken; 
+                if (chatArr === mainChat) affectedMessages++;
+            }
+        });
     });
 
     if (affectedMessages > 0) {
-        xbLog.info(MODULE_ID, `清理完成：匹配 "${pattern}"，修改了 ${affectedMessages}/${totalCount} 条，清除了 ${deletedFields} 个字段`);
+        xbLog.info(MODULE_ID, `清理完成：修改了 ${affectedMessages}/${totalCount} 条记录。正在执行云端全量写回同步...`);
         
-        // 尝试唤起原本休眠的保存进程
+        // 激进保存：绕过前端保护直接触发
         setTimeout(() => {
             try {
-                // 1. 手动标记 dirty
+                // 1. 设置全局 Dirty 标记
                 if (typeof window.setDirty === 'function') window.setDirty();
                 
-                // 2. 模拟消息列表末尾变动
-                if (window.eventSource) {
-                    window.eventSource.emit('chat_edited', { messageId: chat.length - 1 });
-                    window.eventSource.emit('messages_rendered');
-                }
+                // 2. 尝试调用各种保存入口
+                const saveFns = [
+                    () => window.saveChat?.(true),
+                    () => context?.saveChat?.(),
+                    () => window.SillyTavern?.saveChat?.(),
+                    () => { 
+                        // 如果是云端环境且上述都失败，模拟点击保存按钮
+                        const saveBtn = document.getElementById('save_chat');
+                        if (saveBtn) saveBtn.click();
+                    }
+                ];
 
-                // 3. 执行物理保存
-                if (typeof window.saveChat === 'function') {
-                    window.saveChat(); 
-                } else {
-                    context?.saveChat?.();
+                for (const fn of saveFns) {
+                    try { fn(); } catch (e) {}
                 }
                 
-                xbLog.info(MODULE_ID, "全量同步信号已发出，请观察 2 秒后文件大小。");
+                xbLog.info(MODULE_ID, "全量写回指令已发出。由于云端延迟，文件大小可能在 5 秒内发生变化。");
             } catch (e) {
-                xbLog.error(MODULE_ID, "同步失败", e);
+                xbLog.error(MODULE_ID, "触发云端同步失败", e);
             }
-        }, 300);
+        }, 500);
     }
 
     return { affectedMessages, deletedFields, totalCount };
