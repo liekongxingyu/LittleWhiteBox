@@ -84,6 +84,7 @@ function sendFrameBaseData(store, totalFloors) {
     },
     hideSummarized: store?.hideSummarizedHistory || false,
     keepVisibleCount: store?.keepVisibleCount ?? 3,
+    promptOnlyEvents: store?.promptOnlyEvents || false,
   });
 }
 
@@ -124,14 +125,14 @@ function formatSummaryForPrompt(store) {
   const parts = [];
   parts.push("【此处是对以往历史及省略内容的剧情背景总结】");
 
-  if (data.keywords?.length) {
+  if (!store.promptOnlyEvents && data.keywords?.length) {
     parts.push(`关键词：${data.keywords.map((k) => k.text).join(" / ")}`);
   }
   if (data.events?.length) {
     const lines = data.events.map((ev) => `- [${ev.timeLabel}] ${ev.title}：${ev.summary}`).join("\n");
     parts.push(`重要事件记录：\n${lines}`);
   }
-  if (data.arcs?.length) {
+  if (!store.promptOnlyEvents && data.arcs?.length) {
     const lines = data.arcs.map((a) => {
         const moments = (a.moments || []).map((m) => typeof m === "string" ? m : m.text);
         if (!moments.length) return `- ${a.name}：${a.trajectory}`;
@@ -245,6 +246,13 @@ async function handleUICommand(data) {
           executeSlashCommand(`/unhide 0-${lastSum}`);
       }
       break;
+
+    case "SET_PROMPT_ONLY_EVENTS":
+        if (!store) break;
+        store.promptOnlyEvents = !!data.enabled;
+        storeService.saveSummaryStore();
+        updateSummaryExtensionPrompt();
+        break;
     
     case "CLOSE_PANEL":
         uiBridge.hideOverlay();

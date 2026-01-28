@@ -1419,6 +1419,10 @@
                 <span>聊天时隐藏已总结 · <strong id="summarized-count">0</strong> 楼（保留<input type="number"
                         id="keep-visible-count" min="0" max="50" value="3">楼）</span>
             </label>
+            <label class="chk-label">
+                <input type="checkbox" id="prompt-only-events">
+                <span>提示词仅包含事件</span>
+            </label>
             <span class="spacer"></span>
             <button class="btn btn-icon" id="btn-manager" title="管理消息中的冗余元数据 (如 TavernDB)">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1829,6 +1833,7 @@
         };
         $('btn-generate').onclick = () => { const btn = $('btn-generate'); if (!localGenerating) { localGenerating = true; btn.textContent = '停止'; postMsg('REQUEST_GENERATE', { config: { api: config.api, gen: config.gen, trigger: config.trigger } }) } else { localGenerating = false; btn.textContent = '总结'; postMsg('REQUEST_CANCEL') } };
         $('hide-summarized').onchange = e => postMsg('TOGGLE_HIDE_SUMMARIZED', { enabled: e.target.checked });
+        $('prompt-only-events').onchange = e => postMsg('SET_PROMPT_ONLY_EVENTS', { enabled: e.target.checked });
         $('keep-visible-count').onchange = e => { const c = Math.max(0, Math.min(50, parseInt(e.target.value) || 3)); e.target.value = c; postMsg('UPDATE_KEEP_VISIBLE', { count: c }) };
         $('start-floor-input').onchange = e => {
             const val = parseInt(e.target.value);
@@ -1851,7 +1856,7 @@
 
         // Guarded by origin/source check.
         window.onmessage = e => { if (e.origin !== PARENT_ORIGIN || e.source !== window.parent) return; const d = e.data; if (!d || d.source !== 'LittleWhiteBox') return; const btn = $('btn-generate'); switch (d.type) { case 'GENERATION_STATE': localGenerating = !!d.isGenerating; btn.textContent = localGenerating ? '停止' : '总结'; break; 
-            case 'SUMMARY_BASE_DATA': if (d.stats) { updateStats(d.stats); $('summarized-count').textContent = d.stats.hiddenCount ?? 0; if (d.stats.summarizedUpTo !== undefined) $('start-floor-input').value = d.stats.summarizedUpTo } if (d.hideSummarized !== undefined) $('hide-summarized').checked = d.hideSummarized; if (d.keepVisibleCount !== undefined) $('keep-visible-count').value = d.keepVisibleCount; break; 
+            case 'SUMMARY_BASE_DATA': if (d.stats) { updateStats(d.stats); $('summarized-count').textContent = d.stats.hiddenCount ?? 0; if (d.stats.summarizedUpTo !== undefined) $('start-floor-input').value = d.stats.summarizedUpTo } if (d.hideSummarized !== undefined) $('hide-summarized').checked = d.hideSummarized; if (d.promptOnlyEvents !== undefined) $('prompt-only-events').checked = d.promptOnlyEvents; if (d.keepVisibleCount !== undefined) $('keep-visible-count').value = d.keepVisibleCount; break; 
             case 'SUMMARY_FULL_DATA': if (d.payload) { const p = d.payload; summaryData.lastSummarizedMesId = p.lastSummarizedMesId; if (p.keywords) renderKeywords(p.keywords); if (p.events) renderTimeline(p.events); if (p.characters) renderRelations(p.characters); if (p.arcs) renderArcs(p.arcs); $('stat-events').textContent = p.events?.length || 0; if (p.lastSummarizedMesId != null) $('start-floor-input').value = p.lastSummarizedMesId + 1; if (p.stats) updateStats(p.stats) } break; 
             case 'SUMMARY_ERROR': console.error('Summary error:', d.message); break; 
             case 'SUMMARY_STATUS': 
