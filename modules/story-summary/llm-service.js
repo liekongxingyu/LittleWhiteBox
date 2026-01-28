@@ -7,18 +7,18 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 const PROVIDER_MAP = {
-    openai: "openai",
-    google: "gemini",
-    gemini: "gemini",
-    claude: "claude",
-    anthropic: "claude",
-    deepseek: "deepseek",
-    cohere: "cohere",
-    custom: "custom",
+  openai: "openai",
+  google: "gemini",
+  gemini: "gemini",
+  claude: "claude",
+  anthropic: "claude",
+  deepseek: "deepseek",
+  cohere: "cohere",
+  custom: "custom",
 };
 
 const LLM_PROMPT_CONFIG = {
-    topSystem: `Story Analyst: This task involves narrative comprehension and structured incremental summarization, representing creative story analysis at the intersection of plot tracking and character development. As a story analyst, you will conduct systematic evaluation of provided dialogue content to generate structured incremental summary data.
+  topSystem: `Story Analyst: This task involves narrative comprehension and structured incremental summarization, representing creative story analysis at the intersection of plot tracking and character development. As a story analyst, you will conduct systematic evaluation of provided dialogue content to generate structured incremental summary data.
 [Read the settings for this task]
 <task_settings>
 Incremental_Summary_Requirements:
@@ -85,7 +85,7 @@ execution_context:
 Summary Specialist:
 <Chat_History>`,
 
-    assistantDoc: `
+  assistantDoc: `
 Summary Specialist:
 Acknowledged. Now reviewing the incremental summarization specifications:
 
@@ -104,7 +104,7 @@ Acknowledged. Now reviewing the incremental summarization specifications:
 
 Ready to process incremental summary requests with strict deduplication.`,
 
-    assistantAskSummary: `
+  assistantAskSummary: `
 Summary Specialist:
 Specifications internalized. Please provide the existing summary state so I can:
 1. Index all recorded events to avoid duplication
@@ -112,7 +112,7 @@ Specifications internalized. Please provide the existing summary state so I can:
 3. Note existing arc progress levels
 4. Identify established keywords`,
 
-    assistantAskContent: `
+  assistantAskContent: `
 Summary Specialist:
 Existing summary fully analyzed and indexed. I understand:
 ├─ Recorded events: Indexed for deduplication
@@ -123,7 +123,7 @@ Existing summary fully analyzed and indexed. I understand:
 I will extract only genuinely NEW elements from the upcoming dialogue.
 Please provide the new dialogue content requiring incremental analysis.`,
 
-    mergeEventsPrompt: `As a Summary Specialist, your task is to MERGE several sequential story events into a single, cohesive, and higher-level event.
+  mergeEventsPrompt: `As a Summary Specialist, your task is to MERGE several sequential story events into a single, cohesive, and higher-level event.
 The goal is to maintain the narrative flow while reducing the number of events.
 
 [Input]
@@ -135,12 +135,12 @@ Ensure the 'summary' covers the key points of all merged events and accurately r
 Maintain logical consistency for title, timeLabel, participants, type, and weight based on the combined content.
 Output only the JSON object for the new merged event.`,
 
-    metaProtocolStart: `
+  metaProtocolStart: `
 Summary Specialist:
 ACKNOWLEDGED. Beginning structured JSON generation:
 <meta_protocol>`,
 
-    userJsonFormat: `
+  userJsonFormat: `
 ## Output Rule
 Generate a single valid JSON object with INCREMENTAL updates only.
 
@@ -156,7 +156,7 @@ Before generating, observe the USER and analyze carefully:
 \`\`\`json
 {
   "mindful_prelude": {
-    "user_insight": 用户的幻想是什么时空、场景，是否反应出存在严重心理问题需要建议？",
+    "user_insight": "用户的幻想是什么时空、场景，是否反应出存在严重心理问题需要建议？",
     "dedup_analysis": "已有X个事件，本次识别Y个新事件",
   },
   "keywords": [
@@ -191,7 +191,7 @@ Before generating, observe the USER and analyze carefully:
 - Output single valid JSON only
 </meta_protocol>`,
 
-    assistantCheck: `Content review initiated...
+  assistantCheck: `Content review initiated...
 [Compliance Check Results]
 ├─ Existing summary loaded: ✓ Fully indexed
 ├─ New dialogue received: ✓ Content parsed
@@ -207,12 +207,12 @@ Before generating, observe the USER and analyze carefully:
 └─ Output specification: ✓ Defined in <meta_protocol>
 All checks passed. Beginning incremental extraction...
 {
-  "mindful_prelude":`,
+  "mindful_prelude": {`,
 
-    userConfirm: `怎么截断了！重新完整生成，只输出JSON，不要任何其他内容
+  userConfirm: `怎么截断了！重新完整生成，只输出JSON，不要任何其他内容
 </Chat_History>`,
 
-    assistantPrefill: `非常抱歉！现在重新完整生成JSON。`
+  assistantPrefill: `非常抱歉！现在重新完整生成JSON。`,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -220,64 +220,92 @@ All checks passed. Beginning incremental extraction...
 // ═══════════════════════════════════════════════════════════════════════════
 
 function b64UrlEncode(str) {
-    const utf8 = new TextEncoder().encode(String(str));
-    let bin = '';
-    utf8.forEach(b => bin += String.fromCharCode(b));
-    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const utf8 = new TextEncoder().encode(String(str));
+  let bin = "";
+  utf8.forEach((b) => (bin += String.fromCharCode(b)));
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function getStreamingModule() {
-    const mod = window.xiaobaixStreamingGeneration;
-    return mod?.xbgenrawCommand ? mod : null;
+  const mod = window.xiaobaixStreamingGeneration;
+  return mod?.xbgenrawCommand ? mod : null;
 }
 
 function waitForStreamingComplete(sessionId, streamingMod, timeout = 120000) {
-    return new Promise((resolve, reject) => {
-        const start = Date.now();
-        const poll = () => {
-            const { isStreaming, text } = streamingMod.getStatus(sessionId);
-            if (!isStreaming) return resolve(text || '');
-            if (Date.now() - start > timeout) return reject(new Error('生成超时'));
-            setTimeout(poll, 300);
-        };
-        poll();
-    });
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const poll = () => {
+      const { isStreaming, text } = streamingMod.getStatus(sessionId);
+      if (!isStreaming) return resolve(text || "");
+      if (Date.now() - start > timeout) return reject(new Error("生成超时"));
+      setTimeout(poll, 300);
+    };
+    poll();
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 提示词构建
 // ═══════════════════════════════════════════════════════════════════════════
 
-function buildSummaryMessages(existingSummary, newHistoryText, historyRange, nextEventId, existingEventCount) {
-    // 替换动态内容
-    const jsonFormat = LLM_PROMPT_CONFIG.userJsonFormat
-        .replace(/\{nextEventId\}/g, String(nextEventId));
-    
-    const checkContent = LLM_PROMPT_CONFIG.assistantCheck
-        .replace(/\{existingEventCount\}/g, String(existingEventCount));
+function buildSummaryMessages(
+  existingSummary,
+  newHistoryText,
+  historyRange,
+  nextEventId,
+  existingEventCount,
+) {
+  // 替换动态内容
+  const jsonFormat = LLM_PROMPT_CONFIG.userJsonFormat.replace(
+    /\{nextEventId\}/g,
+    String(nextEventId),
+  );
 
-    // 顶部消息：系统设定 + 多轮对话引导
-    const topMessages = [
-        { role: 'system', content: LLM_PROMPT_CONFIG.topSystem },
-        { role: 'assistant', content: LLM_PROMPT_CONFIG.assistantDoc },
-        { role: 'assistant', content: LLM_PROMPT_CONFIG.assistantAskSummary },
-        { role: 'user', content: `<已有总结状态>\n${existingSummary}\n</已有总结状态>` },
-        { role: 'assistant', content: LLM_PROMPT_CONFIG.assistantAskContent },
-        { role: 'user', content: `<新对话内容>（${historyRange}）\n${newHistoryText}\n</新对话内容>` }
-    ];
+  const checkContent = LLM_PROMPT_CONFIG.assistantCheck.replace(
+    /\{existingEventCount\}/g,
+    String(existingEventCount),
+  );
 
-    // 底部消息：元协议 + 格式要求 + 合规检查 + 催促
-    const bottomMessages = [
-        { role: 'user', content: LLM_PROMPT_CONFIG.metaProtocolStart + '\n' + jsonFormat },
-        { role: 'assistant', content: checkContent },
-        { role: 'user', content: LLM_PROMPT_CONFIG.userConfirm }
-    ];
+  // 顶部消息：系统设定 + 多轮对话引导 (确保 role 交替)
+  const topMessages = [
+    { role: "system", content: LLM_PROMPT_CONFIG.topSystem },
+    {
+      role: "assistant",
+      content:
+        LLM_PROMPT_CONFIG.assistantDoc +
+        "\n\n" +
+        LLM_PROMPT_CONFIG.assistantAskSummary,
+    },
+    {
+      role: "user",
+      content: `<已有总结状态>\n${existingSummary}\n</已有总结状态>`,
+    },
+    { role: "assistant", content: LLM_PROMPT_CONFIG.assistantAskContent },
+    {
+      role: "user",
+      content: `<新对话内容>（${historyRange}）\n${newHistoryText}\n</新对话内容>`,
+    },
+  ];
 
-    return {
-        top64: b64UrlEncode(JSON.stringify(topMessages)),
-        bottom64: b64UrlEncode(JSON.stringify(bottomMessages)),
-        assistantPrefill: LLM_PROMPT_CONFIG.assistantPrefill
-    };
+  // 底部消息：元协议 + 格式要求 + 合规检查 + 催促 (确保与上下文及 prefill 逻辑连贯)
+  const bottomMessages = [
+    {
+      role: "assistant",
+      content: "Acknowledged. Please specify the output format requirements.",
+    },
+    {
+      role: "user",
+      content: LLM_PROMPT_CONFIG.metaProtocolStart + "\n" + jsonFormat,
+    },
+    { role: "assistant", content: checkContent },
+    { role: "user", content: LLM_PROMPT_CONFIG.userConfirm },
+  ];
+
+  return {
+    top64: b64UrlEncode(JSON.stringify(topMessages)),
+    bottom64: b64UrlEncode(JSON.stringify(bottomMessages)),
+    assistantPrefill: LLM_PROMPT_CONFIG.assistantPrefill,
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -285,30 +313,30 @@ function buildSummaryMessages(existingSummary, newHistoryText, historyRange, nex
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function parseSummaryJson(raw) {
-    if (!raw) return null;
-    
-    let cleaned = String(raw).trim()
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
+  if (!raw) return null;
 
-    // 直接解析
-    try { 
-        return JSON.parse(cleaned); 
+  let cleaned = String(raw)
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  // 直接解析
+  try {
+    return JSON.parse(cleaned);
+  } catch {}
+
+  // 提取 JSON 对象
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    let jsonStr = cleaned.slice(start, end + 1).replace(/,(\s*[}\]])/g, "$1"); // 移除尾部逗号
+    try {
+      return JSON.parse(jsonStr);
     } catch {}
+  }
 
-    // 提取 JSON 对象
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start !== -1 && end > start) {
-        let jsonStr = cleaned.slice(start, end + 1)
-            .replace(/,(\s*[}\]])/g, '$1'); // 移除尾部逗号
-        try { 
-            return JSON.parse(jsonStr); 
-        } catch {}
-    }
-
-    return null;
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -316,110 +344,114 @@ export function parseSummaryJson(raw) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export async function generateSummary(options) {
-    const {
-        existingSummary,
-        newHistoryText,
-        historyRange,
-        nextEventId,
-        existingEventCount = 0,
-        llmApi = {},
-        genParams = {},
-        useStream = true,
-        timeout = 120000,
-        sessionId = 'xb_summary'
-    } = options;
+  const {
+    existingSummary,
+    newHistoryText,
+    historyRange,
+    nextEventId,
+    existingEventCount = 0,
+    llmApi = {},
+    genParams = {},
+    useStream = true,
+    timeout = 120000,
+    sessionId = "xb_summary",
+  } = options;
 
-    if (!newHistoryText?.trim()) {
-        throw new Error('新对话内容为空');
+  if (!newHistoryText?.trim()) {
+    throw new Error("新对话内容为空");
+  }
+
+  const streamingMod = getStreamingModule();
+  if (!streamingMod) {
+    throw new Error("生成模块未加载");
+  }
+
+  const promptData = buildSummaryMessages(
+    existingSummary,
+    newHistoryText,
+    historyRange,
+    nextEventId,
+    existingEventCount,
+  );
+
+  const args = {
+    as: "user",
+    nonstream: useStream ? "false" : "true",
+    top64: promptData.top64,
+    bottom64: promptData.bottom64,
+    bottomassistant: promptData.assistantPrefill,
+    id: sessionId,
+  };
+
+  // API 配置（非酒馆主 API）
+  if (llmApi.provider && llmApi.provider !== "st") {
+    const mappedApi = PROVIDER_MAP[String(llmApi.provider).toLowerCase()];
+    if (mappedApi) {
+      args.api = mappedApi;
+      if (llmApi.url) args.apiurl = llmApi.url;
+      if (llmApi.key) args.apipassword = llmApi.key;
+      if (llmApi.model) args.model = llmApi.model;
     }
+  }
 
-    const streamingMod = getStreamingModule();
-    if (!streamingMod) {
-        throw new Error('生成模块未加载');
-    }
+  // 生成参数
+  if (genParams.temperature != null) args.temperature = genParams.temperature;
+  if (genParams.top_p != null) args.top_p = genParams.top_p;
+  if (genParams.top_k != null) args.top_k = genParams.top_k;
+  if (genParams.presence_penalty != null)
+    args.presence_penalty = genParams.presence_penalty;
+  if (genParams.frequency_penalty != null)
+    args.frequency_penalty = genParams.frequency_penalty;
 
-    const promptData = buildSummaryMessages(
-        existingSummary, 
-        newHistoryText, 
-        historyRange, 
-        nextEventId,
-        existingEventCount
-    );
+  // 调用生成
+  const sid = await streamingMod.xbgenrawCommand(args, "");
+  const rawOutput = await waitForStreamingComplete(sid, streamingMod, timeout);
 
-    const args = {
-        as: 'user',
-        nonstream: useStream ? 'false' : 'true',
-        top64: promptData.top64,
-        bottom64: promptData.bottom64,
-        bottomassistant: promptData.assistantPrefill,
-        id: sessionId,
-    };
+  console.group(
+    "%c[Story-Summary] LLM输出",
+    "color: #7c3aed; font-weight: bold",
+  );
+  console.log(rawOutput);
+  console.groupEnd();
 
-    // API 配置（非酒馆主 API）
-    if (llmApi.provider && llmApi.provider !== 'st') {
-        const mappedApi = PROVIDER_MAP[String(llmApi.provider).toLowerCase()];
-        if (mappedApi) {
-            args.api = mappedApi;
-            if (llmApi.url) args.apiurl = llmApi.url;
-            if (llmApi.key) args.apipassword = llmApi.key;
-            if (llmApi.model) args.model = llmApi.model;
-        }
-    }
-
-    // 生成参数
-    if (genParams.temperature != null) args.temperature = genParams.temperature;
-    if (genParams.top_p != null) args.top_p = genParams.top_p;
-    if (genParams.top_k != null) args.top_k = genParams.top_k;
-    if (genParams.presence_penalty != null) args.presence_penalty = genParams.presence_penalty;
-    if (genParams.frequency_penalty != null) args.frequency_penalty = genParams.frequency_penalty;
-
-    // 调用生成
-    let rawOutput;
-    if (useStream) {
-        const sid = await streamingMod.xbgenrawCommand(args, '');
-        rawOutput = await waitForStreamingComplete(sid, streamingMod, timeout);
-    } else {
-        rawOutput = await streamingMod.xbgenrawCommand(args, '');
-    }
-
-    console.group('%c[Story-Summary] LLM输出', 'color: #7c3aed; font-weight: bold');
-    console.log(rawOutput);
-    console.groupEnd();
-
-    return rawOutput;
+  return rawOutput;
 }
 
 /**
  * 将多个事件合并为一个
  */
 export async function generateEventMerge(events, llmApi = {}, genParams = {}) {
-    if (!Array.isArray(events) || events.length === 0) return null;
+  if (!Array.isArray(events) || events.length === 0) return null;
 
-    const streamingMod = getStreamingModule();
-    if (!streamingMod) throw new Error('生成模块未加载');
+  const streamingMod = getStreamingModule();
+  if (!streamingMod) throw new Error("生成模块未加载");
 
-    const promptMessages = [
-        { role: 'system', content: LLM_PROMPT_CONFIG.topSystem },
-        { role: 'user', content: `${LLM_PROMPT_CONFIG.mergeEventsPrompt}\n\n[Events to Merge]\n${JSON.stringify(events, null, 2)}` }
-    ];
+  const promptMessages = [
+    { role: "system", content: LLM_PROMPT_CONFIG.topSystem },
+    {
+      role: "user",
+      content: `${LLM_PROMPT_CONFIG.mergeEventsPrompt}\n\n[Events to Merge]\n${JSON.stringify(events, null, 2)}`,
+    },
+  ];
 
-    const args = {
-        as: 'user',
-        nonstream: 'true',
-        top64: b64UrlEncode(JSON.stringify(promptMessages)),
-        id: 'xb_merge'
-    };
+  const args = {
+    as: "user",
+    nonstream: "true",
+    top64: b64UrlEncode(JSON.stringify(promptMessages)),
+    id: "xb_merge",
+  };
 
-    if (llmApi.provider && llmApi.provider !== 'st') {
-        const mappedApi = PROVIDER_MAP[String(llmApi.provider).toLowerCase()];
-        if (mappedApi) {
-            args.api = mappedApi;
-            if (llmApi.url) args.apiurl = llmApi.url;
-            if (llmApi.key) args.apipassword = llmApi.key;
-            if (llmApi.model) args.model = llmApi.model;
-        }
+  if (llmApi.provider && llmApi.provider !== "st") {
+    const mappedApi = PROVIDER_MAP[String(llmApi.provider).toLowerCase()];
+    if (mappedApi) {
+      args.api = mappedApi;
+      if (llmApi.url) args.apiurl = llmApi.url;
+      if (llmApi.key) args.apipassword = llmApi.key;
+      if (llmApi.model) args.model = llmApi.model;
     }
+  }
 
-    const raw = await streamingMod.xbgenrawCommand(args, '');
-    return parseSummaryJson(raw);
+  const sid = await streamingMod.xbgenrawCommand(args, "");
+  const raw = await waitForStreamingComplete(sid, streamingMod, 120000);
+  return parseSummaryJson(raw);
 }
